@@ -5,6 +5,7 @@
 (def datatype-size-table @{
                            :varint 5
                            :unsigned_short 2
+                           :uuid 16
 })
 
 (defn get-size
@@ -14,12 +15,17 @@
     (+ (* 4 size) 3)
     (get datatype-size-table name)))
 
-(defn calc_handshake_size
-  "Calculates the maximum size of the handshake data (excluding packet headers)"
+(defn calc-handshake-size
+  "Calculates the maximum size of the handshake data (excluding packet header)"
   []
   (+ (get-size :varint) (get-size :string 255) (get-size :unsigned_short) (get-size :varint)))
 
-(defn calc_packet_header_size
+(defn calc-login-start-size
+  "Calculates the maximum size of the login start data (excluding packet header)"
+  []
+  (+ (get-size :string 16) (get-size :uuid)))
+
+(defn calc-packet-header-size
   "Calculates the packer header size"
   []
   (+ (get-size :varint) (get-size :varint)))
@@ -65,6 +71,10 @@
   (map (fn [x] (buffer/push-word strbuf x)) (take strlen buf))
   strbuf)
 
+(defn read-uuid
+  [buf]
+  (take 16 buf))
+
 (defn parse-packet-header
   "Gets the packet size and its ID"
   [packet_data]
@@ -75,29 +85,42 @@
    })
 
 (defn parse-handshake-msg
-  [handshake_msg]
   "Parses the handshake data"
-   (def protocol_num (read-varint handshake_msg))
-   (def server_address (read-string handshake_msg))
-   (def server_port (read-unsigned-short handshake_msg))
-   (def state (read-varint handshake_msg))
-   @{
-     :protocol_num protocol_num
-     :server_address server_address
-     :server_port server_port
-     :state state
-    })
+  [handshake_msg]
+  (def protocol_num (read-varint handshake_msg))
+  (def server_address (read-string handshake_msg))
+  (def server_port (read-unsigned-short handshake_msg))
+  (def state (read-varint handshake_msg))
+  @{
+    :protocol_num protocol_num
+    :server_address server_address
+    :server_port server_port
+    :state state
+  })
+
+(defn handle-status
+  "Handle status=1 in handshake"
+  [connection])
+
+(defn handle-login-start
+  "Handles status=2 in handshake"
+  [connection]
+  (def packet_data (make-byte-fiber (ev/read connection (+ (calc-login-start-size) (calc-packet-header-size)))))
+  (def packet_header (parse-packet-header packet_data))
+  (def name (read-string packet_data))
+  (def uuid (read-uuid packet_data))
+  (print name)
+  (print (string/join (map (fn [x] (string/format "%x" x)) uuid))))
 
 (defn main-server-handler
   "Handle connection in a separate fiber"
   [connection]
   (defer (:close connection)
-    (def packet_data (make-byte-fiber (ev/read connection (+ (calc_handshake_size) (calc_packet_header_size)))))
+    (def packet_data (make-byte-fiber (ev/read connection (+ (calc-handshake-size) (calc-packet-header-size)))))
     (def packet_header (parse-packet-header packet_data))
-    (print "Packet size: " (get packet_header :packet_size))
-    (print "Packet id: " (get packet_header :packet_id))
     (def handshake_result (parse-handshake-msg packet_data))
-    (map (fn [x] (print x ": " (handshake_result x))) (keys handshake_result))))
+    (if (= 2 (get handshake_result :state))
+      (handle-login-start connection) (handle-status connection))))
 
 # Main code
 (forever
