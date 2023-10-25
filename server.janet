@@ -38,7 +38,8 @@
 (defn next-byte
   "Gets the next byte from a fiber made by make-byte-fiber"
   [byte_fiber]
-  (resume byte_fiber))
+  (if (not= :dead (fiber/status byte_fiber))
+  (resume byte_fiber)))
 
 # See https://wiki.vg/Protocol#VarInt_and_VarLong
 (defn read-varint
