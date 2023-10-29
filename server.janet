@@ -15,9 +15,7 @@
 
 # The public key for the server. As of now, this is put into a file in ASN.1 DER
 # format, but this will be generated on the fly in the future.
-(def pubkey_file (file/open "pubkey_der.txt" :r))
-(def SERVER_PUBLIC_KEY (file/read pubkey_file :all))
-(file/close pubkey_file)
+(def SERVER_PUBLIC_KEY (slurp "pubkey_der.txt"))
 
 (defn get-size
   "Gets the max size of a datatype (if it's a string, the optional size is used for calculation)"
@@ -181,7 +179,7 @@
   "Reads an encryption response from client"
   [connection]
   )
-
+  
 (defn handle-encryption
   "Handles setting up encryption"
   [connection name uuid]
