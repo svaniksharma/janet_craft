@@ -183,7 +183,8 @@
   (assert (= (length verify_token) 4))
   (write-varint encrypt_buf (length verify_token))
   (write-byte-array encrypt_buf verify_token)
-  (write-pkt connection 0x1 encrypt_buf))
+  (write-pkt connection 0x1 encrypt_buf)
+  verify_token)
 
 (defn read-encryption-response
   "Reads an encryption response from client"
@@ -202,10 +203,11 @@
 (defn handle-encryption
   "Handles setting up encryption"
   [connection name uuid]
-  (write-encryption-req connection)
+  (def verify_token (write-encryption-req connection))
   (def encryption_response (read-encryption-response connection))
   (print-table encryption_response))
 
+# TODO
 (defn handle-status
   "Handle status=1 in handshake"
   [connection])
@@ -228,6 +230,7 @@
       (handle-login-start connection) (handle-status connection))))
 
 # Main code
+(print "Server is up and ready")
 (forever
   (def conn (net/accept minecraft-server))
   (ev/call main-server-handler conn))
