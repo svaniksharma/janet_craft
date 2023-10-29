@@ -1,3 +1,5 @@
+(use jhydro)
+
 # The actual server
 (def minecraft-server (net/listen "127.0.0.1" "25565"))
 
@@ -10,6 +12,12 @@
                            :unsigned_short 2
                            :uuid 16
 })
+
+# The public key for the server. As of now, this is put into a file in ASN.1 DER
+# format, but this will be generated on the fly in the future.
+(def pubkey_file (file/open "pubkey_der.txt" :r))
+(def SERVER_PUBLIC_KEY (file/read pubkey_file :all))
+(file/close pubkey_file)
 
 (defn get-size
   "Gets the max size of a datatype (if it's a string, the optional size is used for calculation)"
@@ -62,6 +70,20 @@
     (+= pos 7))
   (if return_bytes @{:value value :bytes bytes} value))
 
+(defn write-varint
+  "Writes a varint to LEB128 signed encoding"
+  [buf value]
+  (def segment_bits 0x7F)
+  (def continue_bit 0x80)
+  (var v value)
+  (forever
+    (if (= 0 (band v (bnot segment_bits)))
+      (do 
+        (buffer/push-byte buf v)
+        (break)))
+    (buffer/push-byte buf (bor (band v segment_bits) continue_bit))
+    (set v (brshift v 7)))) 
+
 (defn read-unsigned-short
   "Reads an unsigned short"
   [buf]
@@ -78,8 +100,14 @@
   strbuf)
 
 (defn read-uuid
+  "Reads 16 bytes corresponding to a UUID"
   [buf]
   (take 16 buf))
+
+(defn write-byte-array
+  "Writes a byte array"
+  [buf bytes]
+  (buffer/push buf bytes))
 
 (defn parse-packet-header
   "Gets the packet size and its ID"
@@ -116,11 +144,49 @@
      :state state
   })
 
-# TODO
+(defn make-packet-header
+  "Make a packet header"
+  [id buf_len]
+  (def idbuf @"")
+  (write-varint idbuf id)
+  (def idbytes (length idbuf))
+  (def header @"")
+  (write-varint header (+ buf_len idbytes))
+  (write-varint header id)
+  header)
+
+(defn write-pkt
+  "Writes data as packet"
+  [connection id buf]
+  (def pkt @"")
+  (def packet_header (make-packet-header id (length buf)))
+  (buffer/push pkt packet_header)
+  (buffer/push pkt buf)
+  (ev/write connection pkt TIMEOUT))
+
+(defn write-encryption-req
+  "Writes an encryption request to the client."
+  [connection]
+  (def encrypt_buf @"\0") # 0 byte since Server ID is empty
+  (write-varint encrypt_buf (length SERVER_PUBLIC_KEY))
+  (write-byte-array encrypt_buf SERVER_PUBLIC_KEY)
+  (def verify_token @"")
+  (random/buf verify_token 4)
+  (assert (= (length verify_token) 4))
+  (write-varint encrypt_buf (length verify_token))
+  (write-byte-array encrypt_buf verify_token)
+  (write-pkt connection 0x1 encrypt_buf))
+
+(defn read-encryption-response
+  "Reads an encryption response from client"
+  [connection]
+  )
+
 (defn handle-encryption
   "Handles setting up encryption"
   [connection name uuid]
-  (print name))
+  (write-encryption-req connection)
+  (def encryption_response (read-encryption-response connection)))
 
 (defn handle-status
   "Handle status=1 in handshake"
