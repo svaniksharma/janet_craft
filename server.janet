@@ -17,6 +17,11 @@
 # format, but this will be generated on the fly in the future.
 (def SERVER_PUBLIC_KEY (slurp "pubkey_der.txt"))
 
+# Just a debugging function for printing tables
+(defn print-table
+  [t]
+  (map (fn [x] (print (get t x))) (keys t)))
+
 (defn get-size
   "Gets the max size of a datatype (if it's a string, the optional size is used for calculation)"
   [name &opt size]
@@ -30,12 +35,12 @@
   (+ (get-size :varint) (get-size :varint)))
 
 (defn calc-handshake-size
-  "Calculates the maximum size of the handshake data (excluding packet header)"
+  "Calculates the maximum size of the handshake data"
   []
   (+ (calc-packet-header-size) (get-size :varint) (get-size :string 255) (get-size :unsigned_short) (get-size :varint)))
 
 (defn calc-login-start-size
-  "Calculates the maximum size of the login start data (excluding packet header)"
+  "Calculates the maximum size of the login start data"
   []
   (+ (calc-packet-header-size) (get-size :string 16) (get-size :uuid)))
 
@@ -101,6 +106,11 @@
   "Reads 16 bytes corresponding to a UUID"
   [buf]
   (take 16 buf))
+
+(defn read-byte-array
+  "Reads a byte array of specified length"
+  [buf len]
+  (take len buf))
 
 (defn write-byte-array
   "Writes a byte array"
@@ -178,13 +188,23 @@
 (defn read-encryption-response
   "Reads an encryption response from client"
   [connection]
-  )
+  (def resp (read-pkt connection 10000)) # the 10000 is just a placeholder for now
+  (def shared_secret_len (read-varint resp))
+  (def shared_secret (read-byte-array resp shared_secret_len))
+  (def verify_token_len (read-varint resp))
+  (def verify_token (read-byte-array resp verify_token_len))
+  @{ :shared_secret_len shared_secret_len
+     :shared_secret shared_secret
+     :verify_token_len verify_token_len
+     :verify_token verify_token
+   })
   
 (defn handle-encryption
   "Handles setting up encryption"
   [connection name uuid]
   (write-encryption-req connection)
-  (def encryption_response (read-encryption-response connection)))
+  (def encryption_response (read-encryption-response connection))
+  (print-table encryption_response))
 
 (defn handle-status
   "Handle status=1 in handshake"
