@@ -13,9 +13,9 @@
                            :uuid 16
 })
 
-# The public key for the server. As of now, this is put into a file in ASN.1 DER
-# format, but this will be generated on the fly in the future.
+# <Generation of public/private key pair>
 (def SERVER_PUBLIC_KEY (slurp "pubkey_der.txt"))
+# </Generation of public/private key pair>
 
 # Just a debugging function for printing tables
 (defn print-table
