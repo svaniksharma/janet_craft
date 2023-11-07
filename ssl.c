@@ -31,6 +31,12 @@ static EVP_PKEY_CTX *make_ctx(EVP_PKEY *key) {
 
 static int rsa_info_gc(void *data, size_t len) {
   (void) len;
+  struct rsa_info info = { 0 };
+  JanetTable *rsa = (JanetTable *) data;
+  info.key = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("key", 3))));
+  info.encryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("ectx", 4))));;
+  info.decryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("dctx", 4))));;
+  destroy_rsa_key_pair(&info);
   janet_table_deinit((JanetTable *) data);
   return 0;
 }
@@ -76,15 +82,48 @@ static Janet make_rsa_info(int32_t argc, Janet *argv) {
 }
 
 static Janet rsa_encrypt(int32_t argc, Janet *argv) {
+  janet_fixarity(argc, 2);
   // Get the RSA info (Janet table) and the data (Janet buffer)
+  JanetTable *rsa = janet_unwrap_table(argv[0]);
+  JanetBuffer *buf = janet_unwrap_buffer(argv[1]);
   // Use the C function to encrypt the buffer
-  // Create new Janet buffer and copy contents 
+  struct rsa_info info;
+  info.key = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("key", 3))));
+  info.encryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("ectx", 4))));;
+  info.decryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("dctx", 4))));;
+  size_t encrypted_size = 0;
+  unsigned char *encrypted = encrypt_buf(&info, buf->data, buf->count, &encrypted_size);
+  if (encrypted_size <= 0 || !encrypted) {
+    return janet_wrap_nil();
+  }
+  // Create new Janet buffer and copy contents
+  JanetBuffer *buffer = janet_buffer(encrypted_size);
+  janet_buffer_push_bytes(buffer, encrypted, encrypted_size);
+  OPENSSL_free(encrypted);
+  return janet_wrap_buffer(buffer);
 }
 
 static Janet rsa_decrypt(int32_t argc, Janet *argv) {
+  janet_fixarity(argc, 2);
   // Get the RSA info (Janet table) and the data (Janet buffer)
+  JanetTable *rsa = janet_unwrap_table(argv[0]);
+  JanetBuffer *buf = janet_unwrap_buffer(argv[1]);
   // Use the C function to encrypt the buffer
+  struct rsa_info info;
+  info.key = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("key", 3))));
+  info.encryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("ectx", 4))));;
+  info.decryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("dctx", 4))));;
+  size_t decrypted_size = 0;
+  unsigned char *decrypted = decrypt_buf(&info, buf->data, buf->count, &decrypted_size);
+  if (decrypted_size <= 0 || !decrypted) {
+    return janet_wrap_nil();
+  }
   // Create new Janet buffer and copy contents 
+  JanetBuffer *buffer = janet_buffer(decrypted_size);
+  janet_buffer_push_bytes(buffer, decrypted, decrypted_size);
+  OPENSSL_free(decrypted);
+  return janet_wrap_buffer(buffer);
+
 }
 
 static const JanetReg cfuns[] = {
