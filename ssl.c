@@ -3,6 +3,8 @@
 #include <openssl/rsa.h>
 #include <janet.h>
 
+#define WRAP_JANET_STRING(key, len) janet_wrap_string(janet_string((const uint8_t *) key, len))
+
 struct rsa_info {
   EVP_PKEY *key;
   EVP_PKEY_CTX *encryption_ctx;
@@ -33,9 +35,9 @@ static int rsa_info_gc(void *data, size_t len) {
   (void) len;
   struct rsa_info info = { 0 };
   JanetTable *rsa = (JanetTable *) data;
-  info.key = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("key", 3))));
-  info.encryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("ectx", 4))));;
-  info.decryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("dctx", 4))));;
+  info.key = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("key", 3)));
+  info.encryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("ectx", 4)));
+  info.decryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("dctx", 4)));
   destroy_rsa_key_pair(&info);
   janet_table_deinit((JanetTable *) data);
   return 0;
@@ -75,9 +77,9 @@ static Janet make_rsa_info(int32_t argc, Janet *argv) {
   struct rsa_info info = gen_rsa_key_pair();
   if (!info.key || !info.encryption_ctx || !info.decryption_ctx)
     return janet_wrap_nil();
-  janet_table_put(rsa, janet_wrap_string(janet_string("key", 3)), janet_wrap_pointer(info.key));
-  janet_table_put(rsa, janet_wrap_string(janet_string("ectx", 4)), janet_wrap_pointer(info.encryption_ctx));
-  janet_table_put(rsa, janet_wrap_string(janet_string("dctx", 4)), janet_wrap_pointer(info.decryption_ctx));
+  janet_table_put(rsa, WRAP_JANET_STRING("key", 3), janet_wrap_pointer(info.key));
+  janet_table_put(rsa, WRAP_JANET_STRING("ectx", 4), janet_wrap_pointer(info.encryption_ctx));
+  janet_table_put(rsa, WRAP_JANET_STRING("dctx", 4), janet_wrap_pointer(info.decryption_ctx));
   return janet_wrap_table(rsa);
 }
 
@@ -88,9 +90,9 @@ static Janet rsa_encrypt(int32_t argc, Janet *argv) {
   JanetBuffer *buf = janet_unwrap_buffer(argv[1]);
   // Use the C function to encrypt the buffer
   struct rsa_info info;
-  info.key = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("key", 3))));
-  info.encryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("ectx", 4))));;
-  info.decryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("dctx", 4))));;
+  info.key = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("key", 3)));
+  info.encryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("ectx", 4)));
+  info.decryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("dctx", 4)));
   size_t encrypted_size = 0;
   unsigned char *encrypted = encrypt_buf(&info, buf->data, buf->count, &encrypted_size);
   if (encrypted_size <= 0 || !encrypted) {
@@ -110,9 +112,9 @@ static Janet rsa_decrypt(int32_t argc, Janet *argv) {
   JanetBuffer *buf = janet_unwrap_buffer(argv[1]);
   // Use the C function to encrypt the buffer
   struct rsa_info info;
-  info.key = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("key", 3))));
-  info.encryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("ectx", 4))));;
-  info.decryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, janet_wrap_string(janet_string("dctx", 4))));;
+  info.key = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("key", 3)));
+  info.encryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("ectx", 4)));
+  info.decryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("dctx", 4)));
   size_t decrypted_size = 0;
   unsigned char *decrypted = decrypt_buf(&info, buf->data, buf->count, &decrypted_size);
   if (decrypted_size <= 0 || !decrypted) {
@@ -123,7 +125,6 @@ static Janet rsa_decrypt(int32_t argc, Janet *argv) {
   janet_buffer_push_bytes(buffer, decrypted, decrypted_size);
   OPENSSL_free(decrypted);
   return janet_wrap_buffer(buffer);
-
 }
 
 static const JanetReg cfuns[] = {
