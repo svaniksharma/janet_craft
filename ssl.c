@@ -19,7 +19,10 @@ unsigned char *decrypt_buf(struct rsa_info *info, unsigned char *data, size_t da
 void destroy_rsa_key_pair(struct rsa_info *info);
 
 // print where an error message happened
-#define DIE() ERR_print_errors_fp(stdout)
+#define DIE() { \
+  fprintf(stderr, "In file %s on line %d:\n", __FILE__, __LINE__); \
+  ERR_print_errors_fp(stdout); \
+}
 
 // helper functions
 static EVP_PKEY_CTX *make_ctx(EVP_PKEY *key) {
@@ -68,7 +71,7 @@ static const JanetAbstractType rsa_info_type = {
   .bytes = NULL,
 };
 
-/* These basically call the C functions described in ssl.h (scroll down for more) */
+/* Janet Bindings */
 
 static Janet make_rsa_info(int32_t argc, Janet *argv) {
   // create a Janet table with 3 elements
@@ -138,6 +141,7 @@ static Janet rsa_decrypt(int32_t argc, Janet *argv) {
   // Get the RSA info (Janet table) and the data (Janet buffer)
   JanetTable *rsa = janet_unwrap_table(argv[0]);
   JanetBuffer *buf = janet_unwrap_buffer(argv[1]);
+  // unwrap each element in array
   // Use the C function to encrypt the buffer
   struct rsa_info info;
   info.key = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("key", 3)));
@@ -180,7 +184,7 @@ struct rsa_info gen_rsa_key_pair() {
     DIE();
     return info;
   }
-  if (EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, 2048) <= 0) {
+  if (EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, 1024) <= 0) {
     DIE();
     return info;
   }
@@ -201,6 +205,17 @@ struct rsa_info gen_rsa_key_pair() {
     return info;
   if (EVP_PKEY_decrypt_init(info.decryption_ctx) <= 0) {
     DIE();
+    destroy_rsa_key_pair(&info);
+    return info;
+  }
+  if (EVP_PKEY_CTX_set_rsa_padding(info.encryption_ctx, RSA_PKCS1_PADDING) <= 0) {
+    DIE();
+    destroy_rsa_key_pair(&info);
+    return info;
+  }
+  if (EVP_PKEY_CTX_set_rsa_padding(info.decryption_ctx, RSA_PKCS1_PADDING) <= 0) {
+    DIE();
+    destroy_rsa_key_pair(&info);
     return info;
   }
   return info;
@@ -230,13 +245,19 @@ unsigned char *encrypt_buf(struct rsa_info *info, unsigned char *data, size_t da
 /* Using a key pair, decrypts a buffer */
 unsigned char *decrypt_buf(struct rsa_info *info, unsigned char *data, size_t data_size, size_t *decrypted_size) {
   size_t outlen = 0;
-  if (EVP_PKEY_decrypt(info->decryption_ctx, NULL, &outlen, data, data_size) <= 0)
+  if (EVP_PKEY_decrypt(info->decryption_ctx, NULL, &outlen, data, data_size) <= 0) {
+    DIE();
     return NULL;
+  }
   unsigned char *out = OPENSSL_malloc(outlen);
-  if (!out)
+  if (!out) {
+    DIE();
     return NULL;
-  if (EVP_PKEY_decrypt(info->decryption_ctx, out, &outlen, data, data_size) <= 0)
+  }
+  if (EVP_PKEY_decrypt(info->decryption_ctx, out, &outlen, data, data_size) <= 0) {
+    DIE();
     return NULL;
+  }
   *decrypted_size = outlen;
   return out;
 }

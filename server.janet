@@ -112,7 +112,7 @@
 (defn read-byte-array
   "Reads a byte array of specified length"
   [buf len]
-  (take len buf))
+  (buffer/push-byte @"" ;(take len buf)))
 
 (defn write-byte-array
   "Writes a byte array"
@@ -207,9 +207,9 @@
   [connection name uuid]
   (def verify_token (write-encryption-req connection))
   (def encryption_response (read-encryption-response connection))
-  (print "Printing encryption response")
-  (print-table encryption_response))
-
+  (def decrypted_verify_token (rsa/decrypt SERVER_INFO (get encryption_response :verify_token)))
+  (if (deep= decrypted_verify_token verify_token)
+    (print "Tokens the same") (print "Tokens not the same")))
 # TODO
 (defn handle-status
   "Handle status=1 in handshake"
