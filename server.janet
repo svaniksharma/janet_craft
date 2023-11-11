@@ -1,4 +1,5 @@
 (use jhydro)
+(import ./rsa/rsa :as rsa)
 
 # The actual server
 (def minecraft-server (net/listen "127.0.0.1" "25565"))
@@ -14,7 +15,9 @@
 })
 
 # <Generation of public/private key pair>
-(def SERVER_PUBLIC_KEY (slurp "pubkey_der.txt"))
+(def SERVER_PUBLIC_KEY @"this is a test")
+(def SERVER_INFO (rsa/new))
+(print (rsa/decrypt SERVER_INFO (rsa/encrypt SERVER_INFO @"this is it")))
 # </Generation of public/private key pair>
 
 # Just a debugging function for printing tables

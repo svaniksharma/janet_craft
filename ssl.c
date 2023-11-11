@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
+#include <openssl/err.h>
+#include <openssl/pem.h>
 #include <janet.h>
 
 #define WRAP_JANET_STRING(key, len) janet_wrap_string(janet_string((const uint8_t *) key, len))
@@ -17,7 +19,7 @@ unsigned char *decrypt_buf(struct rsa_info *info, unsigned char *data, size_t da
 void destroy_rsa_key_pair(struct rsa_info *info);
 
 // print where an error message happened
-#define DIE() fprintf(stderr, "FAILED in file %s, line %d\n", __FILE__, __LINE__);
+#define DIE() ERR_print_errors_fp(stdout)
 
 // helper functions
 static EVP_PKEY_CTX *make_ctx(EVP_PKEY *key) {
@@ -83,6 +85,32 @@ static Janet make_rsa_info(int32_t argc, Janet *argv) {
   return janet_wrap_table(rsa);
 }
 
+static Janet get_der(int32_t argc, Janet *argv) {
+  janet_fixarity(argc, 1);
+  JanetTable *rsa = janet_unwrap_table(argv[0]);
+  EVP_PKEY *key = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("key", 3)));
+  size_t der_data_len = i2d_PUBKEY(key, NULL);
+  if (der_data_len <= 0) {
+    DIE();
+    return janet_wrap_nil();
+  }
+  unsigned char *der_data = OPENSSL_malloc(der_data_len);
+  if (der_data == NULL) {
+    DIE();
+    return janet_wrap_nil();
+  }
+  unsigned char *der_data_buf = der_data;
+  size_t outlen = i2d_PUBKEY(key, &der_data);
+  if (outlen != der_data_len || der_data != der_data_buf + der_data_len) {
+    DIE();
+    return janet_wrap_nil();
+  }
+  JanetBuffer *buffer = janet_buffer(der_data_len);
+  janet_buffer_push_bytes(buffer, der_data_buf, der_data_len);
+  OPENSSL_free(der_data_buf);
+  return janet_wrap_buffer(buffer);
+}
+
 static Janet rsa_encrypt(int32_t argc, Janet *argv) {
   janet_fixarity(argc, 2);
   // Get the RSA info (Janet table) and the data (Janet buffer)
@@ -129,6 +157,7 @@ static Janet rsa_decrypt(int32_t argc, Janet *argv) {
 
 static const JanetReg cfuns[] = {
   {"new", make_rsa_info, "Creates a new rsa_info datatype"},
+  {"der", get_der, "get a DER encoded public key"},
   {"encrypt", rsa_encrypt, "Encrypts data with an rsa_info struct"},
   {"decrypt", rsa_decrypt, "Decrypts data with an rsa_info struct"},
   {NULL, NULL, NULL}
