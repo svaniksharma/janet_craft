@@ -15,9 +15,8 @@
 })
 
 # <Generation of public/private key pair>
-(def SERVER_PUBLIC_KEY @"this is a test")
 (def SERVER_INFO (rsa/new))
-(print (rsa/decrypt SERVER_INFO (rsa/encrypt SERVER_INFO @"this is it")))
+(def SERVER_PUBLIC_KEY (rsa/der SERVER_INFO))
 # </Generation of public/private key pair>
 
 # Just a debugging function for printing tables
@@ -208,6 +207,7 @@
   [connection name uuid]
   (def verify_token (write-encryption-req connection))
   (def encryption_response (read-encryption-response connection))
+  (print "Printing encryption response")
   (print-table encryption_response))
 
 # TODO
