@@ -1,4 +1,5 @@
 (use jhydro)
+(use judge)
 (import ./rsa/rsa :as rsa)
 
 # The actual server
@@ -201,7 +202,15 @@
      :verify_token_len verify_token_len
      :verify_token verify_token
    })
-  
+
+(defn calc-client-hash
+  "Calculates the SHA1 hex digest"
+  [shared_secret]
+  (string/ascii-lower (rsa/sha1 shared_secret SERVER_PUBLIC_KEY)))
+(test (string/ascii-lower (rsa/sha1 @"" @"jeb_")) "-7c9d5b0044c130109a5d7b5fb5c317c02b4e28c1")
+(test (string/ascii-lower (rsa/sha1 @"" @"Notch")) "4ed1f46bbe04bc756bcb17c0c7ce3e4632f06a48")
+(test (string/ascii-lower (rsa/sha1 @"" @"simon")) "88e16a1019277b15d58faf0541e11910eb756f6")
+
 (defn handle-encryption
   "Handles setting up encryption"
   [connection name uuid]
@@ -209,7 +218,10 @@
   (def encryption_response (read-encryption-response connection))
   (def decrypted_verify_token (rsa/decrypt SERVER_INFO (get encryption_response :verify_token)))
   (if (deep= decrypted_verify_token verify_token)
-    (print "Tokens the same") (print "Tokens not the same")))
+    (do 
+      (def decrypted_shared_secret (rsa/decrypt SERVER_INFO (get encryption_response :shared_secret)))
+      (def client_hash (calc-client-hash decrypted_shared_secret))
+      (print client_hash))))
 # TODO
 (defn handle-status
   "Handle status=1 in handshake"

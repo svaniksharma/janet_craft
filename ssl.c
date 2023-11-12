@@ -3,6 +3,8 @@
 #include <openssl/rsa.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
+#include <openssl/sha.h>
+#include <openssl/bn.h>
 #include <janet.h>
 
 #define WRAP_JANET_STRING(key, len) janet_wrap_string(janet_string((const uint8_t *) key, len))
@@ -17,6 +19,8 @@ struct rsa_info gen_rsa_key_pair();
 unsigned char *encrypt_buf(struct rsa_info *info, unsigned char *data, size_t data_size, size_t *encrypted_size);
 unsigned char *decrypt_buf(struct rsa_info *info, unsigned char *data, size_t data_size, size_t *decrypted_size);
 void destroy_rsa_key_pair(struct rsa_info *info);
+char *calc_sha1_hex_digest(unsigned char *shared_secret, size_t shared_secret_len, 
+			   unsigned char *der_encoded_public_key, size_t der_encoded_public_key_len, int *negative, unsigned char **hex_buf);
 
 // print where an error message happened
 #define DIE() { \
@@ -159,11 +163,32 @@ static Janet rsa_decrypt(int32_t argc, Janet *argv) {
   return janet_wrap_buffer(buffer);
 }
 
+static Janet sha1_hexdigest(int32_t argc, Janet *argv) {
+  janet_fixarity(argc, 2);
+  JanetBuffer *shared_secret = janet_unwrap_buffer(argv[0]);
+  JanetBuffer *der_public_key = janet_unwrap_buffer(argv[1]);
+  int negative = 0;
+  unsigned char *hex_ptr = NULL;
+  char *hex = calc_sha1_hex_digest(shared_secret->data, shared_secret->count, der_public_key->data, der_public_key->count, &negative, &hex_ptr);
+  if (!hex) {
+    return janet_wrap_nil();
+  }
+  JanetBuffer *hex_buf = janet_buffer(strlen(hex));
+  if (negative)
+    janet_buffer_push_bytes(hex_buf, (unsigned char *) "-", 1);
+  janet_buffer_push_bytes(hex_buf, (unsigned char *) hex, strlen(hex));
+  JanetString hex_str = janet_string(hex_buf->data, hex_buf->count);
+  janet_buffer_deinit(hex_buf);
+  OPENSSL_free(hex_ptr);
+  return janet_wrap_string(hex_str);
+}
+
 static const JanetReg cfuns[] = {
   {"new", make_rsa_info, "Creates a new rsa_info datatype"},
   {"der", get_der, "get a DER encoded public key"},
   {"encrypt", rsa_encrypt, "Encrypts data with an rsa_info struct"},
   {"decrypt", rsa_decrypt, "Decrypts data with an rsa_info struct"},
+  {"sha1", sha1_hexdigest, "SHA1 hex digest"},
   {NULL, NULL, NULL}
 };
 
@@ -273,4 +298,67 @@ void destroy_rsa_key_pair(struct rsa_info *info) {
   if (info->key)
     EVP_PKEY_free(info->key);
   info->key = NULL;
+}
+
+/* Updates SHA1 digest */
+static int update_digest(EVP_MD_CTX *ctx, unsigned char *data, size_t data_len) {
+  if (EVP_DigestUpdate(ctx, data, data_len) <= 0) {
+    DIE();
+    return 0; // fail 
+  }
+  return 1; // success
+}
+
+/* Calculates Minecraft hex digest */
+char *calc_sha1_hex_digest(unsigned char *shared_secret, size_t shared_secret_len, 
+			   unsigned char *der_encoded_public_key, size_t der_encoded_public_key_len, int *negative, unsigned char **hex_ptr) {
+  EVP_MD_CTX *ctx = EVP_MD_CTX_create();
+  if (!ctx) {
+    DIE();
+    return NULL;
+  }
+  if (EVP_DigestInit(ctx, EVP_sha1()) <= 0) {
+    DIE();
+    return NULL;
+  }
+  if (!update_digest(ctx, (unsigned char *) "", 0))
+    return NULL;
+  if (!update_digest(ctx, shared_secret, shared_secret_len))
+    return NULL;
+  if (!update_digest(ctx, der_encoded_public_key, der_encoded_public_key_len))
+    return NULL;
+  unsigned char digest[EVP_MAX_MD_SIZE] = { 0 };
+  unsigned int digest_len = sizeof(digest);
+  if (EVP_DigestFinal(ctx, digest, &digest_len) <= 0) {
+    DIE();
+    return NULL;
+  }
+  EVP_MD_CTX_free(ctx);
+  BIGNUM *bn = BN_bin2bn(digest, digest_len, NULL);
+  if (BN_is_bit_set(bn, 159))  {
+    size_t tmp_len = BN_num_bytes(bn);
+    unsigned char *tmp = OPENSSL_malloc(tmp_len);
+    if (!tmp) {
+      DIE();
+      return NULL;
+    }
+    BN_bn2bin(bn, tmp);
+    for (int i = 0; i < tmp_len; i++)
+      tmp[i] = ~tmp[i];
+    BN_bin2bn(tmp, tmp_len, bn);
+    BN_add_word(bn, 1);
+    OPENSSL_free(tmp);
+    *negative = 1;
+  } else {
+    *negative = 0;
+  }
+  char *hex = BN_bn2hex(bn);
+  char *hex_start = hex;
+  *hex_ptr = (unsigned char *) hex_start;
+  int len = strlen(hex);
+  for (int i = 0; i < len; i++)
+    if (*hex == '0')
+      ++hex;
+  BN_free(bn);
+  return hex;
 }

@@ -1,4 +1,15 @@
-(declare-project :name "rsa")
+(declare-project
+  :name "jcraft"
+  :description "toy Minecraft server implementation"
+  :dependencies [
+    {:url "https://github.com/ianthehenry/judge.git"
+     :tag "v2.7.0"}
+    {:url "https://github.com/janet-lang/jhydro.git"}
+  ])
+
+# (declare-executable
+#   :name "jcraft"
+#   :entry "server.janet")
 
 (declare-native
   :name "rsa"
