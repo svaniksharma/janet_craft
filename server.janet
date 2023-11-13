@@ -100,9 +100,7 @@
   "Read a string from a fiber"
   [buf]
   (def strlen (read-varint buf))
-  (def strbuf @"")
-  (map (fn [x] (buffer/push-byte strbuf x)) (take strlen buf))
-  strbuf) 
+  (buffer/push-byte @"" ;(take strlen buf))) 
   
 (defn read-uuid
   "Reads 16 bytes corresponding to a UUID"
@@ -213,9 +211,19 @@
 (defn send-auth-req
   "Sends an authentication request"
   [name client_hash]
-  (def myurl (string ENCRYPTION_ENDPOINT "?username=" name "&serverId=" client_hash)) 
-  (print myurl)
-  (ssl/get myurl))
+  (def mojang_url (string ENCRYPTION_ENDPOINT "?username=" name "&serverId=" client_hash)) 
+  (ssl/get mojang_url))
+
+# TODO
+(defn setup-aes-encryption
+  "Sets up AES/CFB8 encryption"
+  [resp_data shared_secret]
+  )
+
+# TODO
+(defn make-login-success
+  "Makes a login success packet"
+  [resp_data])
 
 (defn handle-encryption
   "Handles setting up encryption"
@@ -230,6 +238,9 @@
       (def resp (send-auth-req name client_hash))
       (def resp_data (json/decode resp))
       (printf "%j" resp_data)
+      (def aes_info (setup-aes-encryption resp_data decrypted_shared_secret))
+      (def success_pkt (make-login-success resp_data))
+      # (write-pkt connection 0x2 success_pkt aes_info)
       )))
 # TODO
 (defn handle-status
