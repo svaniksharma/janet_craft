@@ -5,6 +5,8 @@
 #include <openssl/pem.h>
 #include <openssl/sha.h>
 #include <openssl/bn.h>
+#include <curl/curl.h>
+#include <curl/easy.h>
 #include <janet.h>
 
 #define WRAP_JANET_STRING(key, len) janet_wrap_string(janet_string((const uint8_t *) key, len))
@@ -76,6 +78,29 @@ static const JanetAbstractType rsa_info_type = {
 };
 
 /* Janet Bindings */
+
+static size_t auth_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
+  JanetBuffer *buf = (JanetBuffer *) userdata;
+  janet_buffer_push_cstring(buf, ptr);
+  return nmemb;
+}
+
+/* Send authentication request to url */
+static Janet send_auth_req(int32_t argc, Janet *argv) {
+  janet_fixarity(argc, 1);
+  JanetString url = janet_unwrap_string(argv[0]);
+  CURL *handle = curl_easy_init();
+  if (!handle) {
+    return janet_wrap_nil();
+  }
+  JanetBuffer *buffer = janet_buffer(1);
+  curl_easy_setopt(handle, CURLOPT_URL, (char *) url);
+  curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, auth_callback);
+  curl_easy_setopt(handle, CURLOPT_WRITEDATA, buffer);
+  CURLcode res = curl_easy_perform(handle);
+  curl_easy_cleanup(handle);
+  return janet_wrap_buffer(buffer);
+}
 
 static Janet make_rsa_info(int32_t argc, Janet *argv) {
   // create a Janet table with 3 elements
@@ -184,6 +209,7 @@ static Janet sha1_hexdigest(int32_t argc, Janet *argv) {
 }
 
 static const JanetReg cfuns[] = {
+  {"get", send_auth_req, "Sends an HTTPS request to the provided url"},
   {"new", make_rsa_info, "Creates a new rsa_info datatype"},
   {"der", get_der, "get a DER encoded public key"},
   {"encrypt", rsa_encrypt, "Encrypts data with an rsa_info struct"},
