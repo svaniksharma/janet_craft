@@ -219,7 +219,7 @@ static const JanetReg cfuns[] = {
 };
 
 JANET_MODULE_ENTRY(JanetTable *env) {
-  janet_cfuns(env, "rsa", cfuns);
+  janet_cfuns(env, "ssl", cfuns);
   janet_register_abstract_type(&rsa_info_type);
 }
 

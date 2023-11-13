@@ -1,6 +1,7 @@
 (use jhydro)
 (use judge)
-(import ./rsa/rsa :as rsa)
+(import spork/json :as json)
+(import ./ssl/ssl :as ssl)
 
 # The actual server
 (def minecraft-server (net/listen "127.0.0.1" "25565"))
@@ -16,8 +17,8 @@
 })
 
 # <Generation of public/private key pair>
-(def SERVER_INFO (rsa/new))
-(def SERVER_PUBLIC_KEY (rsa/der SERVER_INFO))
+(def SERVER_INFO (ssl/new))
+(def SERVER_PUBLIC_KEY (ssl/der SERVER_INFO))
 # </Generation of public/private key pair>
 
 # Endpoint for server-side authentication
@@ -204,30 +205,31 @@
 (defn calc-client-hash
   "Calculates the SHA1 hex digest"
   [shared_secret]
-  (string/ascii-lower (rsa/sha1 shared_secret SERVER_PUBLIC_KEY)))
-(test (string/ascii-lower (rsa/sha1 @"" @"jeb_")) "-7c9d5b0044c130109a5d7b5fb5c317c02b4e28c1")
-(test (string/ascii-lower (rsa/sha1 @"" @"Notch")) "4ed1f46bbe04bc756bcb17c0c7ce3e4632f06a48")
-(test (string/ascii-lower (rsa/sha1 @"" @"simon")) "88e16a1019277b15d58faf0541e11910eb756f6")
+  (string/ascii-lower (ssl/sha1 shared_secret SERVER_PUBLIC_KEY)))
+(test (string/ascii-lower (ssl/sha1 @"" @"jeb_")) "-7c9d5b0044c130109a5d7b5fb5c317c02b4e28c1")
+(test (string/ascii-lower (ssl/sha1 @"" @"Notch")) "4ed1f46bbe04bc756bcb17c0c7ce3e4632f06a48")
+(test (string/ascii-lower (ssl/sha1 @"" @"simon")) "88e16a1019277b15d58faf0541e11910eb756f6")
 
 (defn send-auth-req
   "Sends an authentication request"
   [name client_hash]
   (def myurl (string ENCRYPTION_ENDPOINT "?username=" name "&serverId=" client_hash)) 
   (print myurl)
-  (rsa/get myurl))
+  (ssl/get myurl))
 
 (defn handle-encryption
   "Handles setting up encryption"
   [connection name uuid]
   (def verify_token (write-encryption-req connection))
   (def encryption_response (read-encryption-response connection))
-  (def decrypted_verify_token (rsa/decrypt SERVER_INFO (get encryption_response :verify_token)))
+  (def decrypted_verify_token (ssl/decrypt SERVER_INFO (get encryption_response :verify_token)))
   (if (deep= decrypted_verify_token verify_token)
     (do 
-      (def decrypted_shared_secret (rsa/decrypt SERVER_INFO (get encryption_response :shared_secret)))
+      (def decrypted_shared_secret (ssl/decrypt SERVER_INFO (get encryption_response :shared_secret)))
       (def client_hash (calc-client-hash decrypted_shared_secret))
       (def resp (send-auth-req name client_hash))
-      (print resp)
+      (def resp_data (json/decode resp))
+      (printf "%j" resp_data)
       )))
 # TODO
 (defn handle-status

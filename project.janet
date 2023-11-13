@@ -9,6 +9,6 @@
 ])
 
 (declare-native
-  :name "rsa"
+  :name "ssl"
   :source ["ssl.c"]
   :cflags [;default-cflags "-lssl" "-lcrypto" "-lcurl"])
