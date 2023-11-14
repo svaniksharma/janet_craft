@@ -99,6 +99,13 @@ static struct ssl_ptr *make_ssl_ptr(void *ptr, ssl_ptr_key_free key_free, ssl_pt
   return p;
 }
 
+void *unwrap_ssl_ptr(JanetTable *table, const char *name, size_t len) {
+  Janet value = janet_table_get(table, WRAP_JANET_STRING(name, len));
+  struct ssl_ptr *ptr = janet_unwrap_abstract(value);
+  return ptr->ptr;
+}
+
+
 static int rsa_info_gc(void *data, size_t len) {
   (void) len;
   janet_table_deinit((JanetTable *) data);
@@ -174,7 +181,7 @@ static Janet make_rsa_info(int32_t argc, Janet *argv) {
 static Janet get_der(int32_t argc, Janet *argv) {
   janet_fixarity(argc, 1);
   JanetTable *rsa = janet_unwrap_table(argv[0]);
-  EVP_PKEY *key = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("key", 3)));
+  EVP_PKEY *key = (EVP_PKEY *) unwrap_ssl_ptr(rsa, "key", 3);
   size_t der_data_len = i2d_PUBKEY(key, NULL);
   if (der_data_len <= 0) {
     DIE();
@@ -204,9 +211,9 @@ static Janet rsa_encrypt(int32_t argc, Janet *argv) {
   JanetBuffer *buf = janet_unwrap_buffer(argv[1]);
   // Use the C function to encrypt the buffer
   struct rsa_info info;
-  info.key = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("key", 3)));
-  info.encryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("ectx", 4)));
-  info.decryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("dctx", 4)));
+  info.key = unwrap_ssl_ptr(rsa, "key", 3);
+  info.encryption_ctx = unwrap_ssl_ptr(rsa, "ectx", 4);
+  info.decryption_ctx = unwrap_ssl_ptr(rsa, "dctx", 4);
   size_t encrypted_size = 0;
   unsigned char *encrypted = encrypt_buf(&info, buf->data, buf->count, &encrypted_size);
   if (encrypted_size <= 0 || !encrypted) {
@@ -227,9 +234,9 @@ static Janet rsa_decrypt(int32_t argc, Janet *argv) {
   // unwrap each element in array
   // Use the C function to encrypt the buffer
   struct rsa_info info = { 0 };
-  info.key = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("key", 3)));
-  info.encryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("ectx", 4)));
-  info.decryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("dctx", 4)));
+  info.key = unwrap_ssl_ptr(rsa, "key", 3);
+  info.encryption_ctx = unwrap_ssl_ptr(rsa, "ectx", 4);
+  info.decryption_ctx = unwrap_ssl_ptr(rsa, "dctx", 4);
   size_t decrypted_size = 0;
   unsigned char *decrypted = decrypt_buf(&info, buf->data, buf->count, &decrypted_size);
   if (decrypted_size <= 0 || !decrypted) {

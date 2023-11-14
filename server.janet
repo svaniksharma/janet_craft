@@ -37,9 +37,17 @@
                            :byte_array 1
                            })
 
+(defn calc-size
+  "Calculates the packer header size"
+  [& types]
+  (+ ;(map datatype-size-table types)))
+(test (calc-size :varint :varint))
+(test (calc-size :varint :varint :byte_array :boolean :boolean :position))
+
+
 # <Generation of public/private key pair>
 (def SERVER_INFO (ssl/new))
-# (def SERVER_PUBLIC_KEY (ssl/der SERVER_INFO))
+(def SERVER_PUBLIC_KEY (ssl/der SERVER_INFO))
 # </Generation of public/private key pair>
 
 # Endpoint for server-side authentication
@@ -51,14 +59,6 @@
   (if (compare= name :string)
     (+ (* 4 size) 3)
     (get datatype-size-table name)))
-
-(defn calc-size
-  "Calculates the packer header size"
-  [& types]
-  (+ ;(map datatype-size-table types)))
-(test (calc-size :varint :varint))
-(test (calc-size :varint :varint :byte_array :boolean :boolean :position))
-
 # (defn calc-handshake-size
 #   "Calculates the maximum size of the handshake data"
 #   []
