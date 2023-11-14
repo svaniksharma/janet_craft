@@ -11,14 +11,35 @@
 
 # Maximum sizes of various datatypes
 (def datatype-size-table @{
-                           :varint 5
+                           :boolean 1
+                           :byte 1
+                           :unsigned_byte 1
+                           :short 3
                            :unsigned_short 2
+                           :int 4
+                           :long 8
+                           :float 4
+                           :double 8
+                           :string 100
+                           :chat (+ (* 262144 4) 3)
+                           :identifier (+ (* 32767 4) 3)
+                           :varint 5
+                           :varlong 10
+                           :entity_metadata 1
+                           :slot 1
+                           :nbt_tag 1
+                           :position 8
+                           :angle 1
                            :uuid 16
-})
+                           :optional_x 1
+                           :array_x 1
+                           :x_enum 1
+                           :byte_array 1
+                           })
 
 # <Generation of public/private key pair>
 (def SERVER_INFO (ssl/new))
-(def SERVER_PUBLIC_KEY (ssl/der SERVER_INFO))
+# (def SERVER_PUBLIC_KEY (ssl/der SERVER_INFO))
 # </Generation of public/private key pair>
 
 # Endpoint for server-side authentication
@@ -31,20 +52,22 @@
     (+ (* 4 size) 3)
     (get datatype-size-table name)))
 
-(defn calc-packet-header-size
+(defn calc-size
   "Calculates the packer header size"
-  []
-  (+ (get-size :varint) (get-size :varint)))
+  [& types]
+  (+ ;(map datatype-size-table types)))
+(test (calc-size :varint :varint))
+(test (calc-size :varint :varint :byte_array :boolean :boolean :position))
 
-(defn calc-handshake-size
-  "Calculates the maximum size of the handshake data"
-  []
-  (+ (calc-packet-header-size) (get-size :varint) (get-size :string 255) (get-size :unsigned_short) (get-size :varint)))
-
-(defn calc-login-start-size
-  "Calculates the maximum size of the login start data"
-  []
-  (+ (calc-packet-header-size) (get-size :string 16) (get-size :uuid)))
+# (defn calc-handshake-size
+#   "Calculates the maximum size of the handshake data"
+#   []
+#   (+ (calc-packet-header-size) (get-size :varint) (get-size :string 255) (get-size :unsigned_short) (get-size :varint)))
+#
+# (defn calc-login-start-size
+#   "Calculates the maximum size of the login start data"
+#   []
+#   (+ (calc-packet-header-size) (get-size :string 16) (get-size :uuid)))
 
 (defn make-byte-fiber
   "Makes a fiber that generates the next byte from a buffer"
@@ -250,7 +273,7 @@
 (defn handle-login-start
   "Handles status=2 in handshake"
   [connection]
-  (def packet_data (read-pkt connection (calc-login-start-size)))
+  (def packet_data (read-pkt connection 10000)) # placeholder
   (def name (read-string packet_data))
   (def uuid (read-uuid packet_data))
   (handle-encryption connection name uuid))
@@ -259,7 +282,7 @@
   "Handle connection in a separate fiber"
   [connection]
   (defer (:close connection)
-    (def packet_data (read-pkt connection (calc-handshake-size)))
+    (def packet_data (read-pkt connection 10000))
     (def handshake_result (parse-handshake-msg packet_data))
     (if (= 2 (get handshake_result :state))
       (handle-login-start connection) (handle-status connection))))

@@ -7,6 +7,7 @@
 #include <openssl/bn.h>
 #include <curl/curl.h>
 #include <curl/easy.h>
+#include <assert.h>
 #include <janet.h>
 
 #define WRAP_JANET_STRING(key, len) janet_wrap_string(janet_string((const uint8_t *) key, len))
@@ -15,6 +16,17 @@ struct rsa_info {
   EVP_PKEY *key;
   EVP_PKEY_CTX *encryption_ctx;
   EVP_PKEY_CTX *decryption_ctx;
+};
+
+typedef void (*ssl_ptr_key_free)(EVP_PKEY *key);
+typedef void (*ssl_ptr_ctx_free)(EVP_PKEY_CTX *ctx);
+
+struct ssl_ptr {
+  void *ptr;
+  union {
+    ssl_ptr_key_free key_free;
+    ssl_ptr_ctx_free ctx_free;
+  } ptr_free;
 };
 
 struct rsa_info gen_rsa_key_pair();
@@ -42,14 +54,53 @@ static EVP_PKEY_CTX *make_ctx(EVP_PKEY *key) {
 
 // Janet-specific data structures 
 
+static int ssl_ptr_gc(void *data, size_t len) {
+  (void) len;
+  struct ssl_ptr *ptr = (struct ssl_ptr *) data;
+  if (ptr->ptr_free.key_free) {
+    ptr->ptr_free.key_free(ptr->ptr);
+  } else {
+    ptr->ptr_free.ctx_free(ptr->ptr);
+  }
+  return 0;
+}
+
+static int ssl_ptr_gcmark(void *data, size_t len) {
+  (void) len;
+  janet_mark(janet_wrap_abstract((struct ssl_ptr *) data));
+  return 0;
+}
+
+static const JanetAbstractType ssl_ptr_type = {
+  .name = "rsa_info",
+  .gc = ssl_ptr_gc,
+  .gcmark = ssl_ptr_gcmark,
+  .get = NULL,
+  .put = NULL,
+  .marshal = NULL,
+  .unmarshal = NULL,
+  .tostring = NULL,
+  .compare = NULL,
+  .hash = NULL,
+  .next = NULL,
+  .call = NULL,
+  .length = NULL,
+  .bytes = NULL,
+};
+
+static struct ssl_ptr *make_ssl_ptr(void *ptr, ssl_ptr_key_free key_free, ssl_ptr_ctx_free ctx_free) {
+  struct ssl_ptr *p = janet_abstract(&ssl_ptr_type, sizeof(struct ssl_ptr));
+  p->ptr = ptr;
+  if (key_free != NULL) {
+    p->ptr_free.key_free = key_free;
+  } else if (ctx_free != NULL) {
+    p->ptr_free.ctx_free = ctx_free;
+  }
+  return p;
+}
+
 static int rsa_info_gc(void *data, size_t len) {
   (void) len;
-  struct rsa_info info = { 0 };
-  JanetTable *rsa = (JanetTable *) data;
-  info.key = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("key", 3)));
-  info.encryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("ectx", 4)));
-  info.decryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("dctx", 4)));
-  destroy_rsa_key_pair(&info);
   janet_table_deinit((JanetTable *) data);
   return 0;
 }
@@ -111,10 +162,13 @@ static Janet make_rsa_info(int32_t argc, Janet *argv) {
   struct rsa_info info = gen_rsa_key_pair();
   if (!info.key || !info.encryption_ctx || !info.decryption_ctx)
     return janet_wrap_nil();
-  janet_table_put(rsa, WRAP_JANET_STRING("key", 3), janet_wrap_pointer(info.key));
-  janet_table_put(rsa, WRAP_JANET_STRING("ectx", 4), janet_wrap_pointer(info.encryption_ctx));
-  janet_table_put(rsa, WRAP_JANET_STRING("dctx", 4), janet_wrap_pointer(info.decryption_ctx));
-  return janet_wrap_table(rsa);
+  Janet key = janet_wrap_abstract(make_ssl_ptr(info.key, EVP_PKEY_free, NULL));
+  Janet ectx = janet_wrap_abstract(make_ssl_ptr(info.encryption_ctx, NULL, EVP_PKEY_CTX_free)); 
+  Janet dctx = janet_wrap_abstract(make_ssl_ptr(info.decryption_ctx, NULL, EVP_PKEY_CTX_free));
+  janet_table_put(rsa, WRAP_JANET_STRING("key", 3), key);
+  janet_table_put(rsa, WRAP_JANET_STRING("ectx", 4), ectx);
+  janet_table_put(rsa, WRAP_JANET_STRING("dctx", 4), dctx);
+  return janet_wrap_abstract(rsa);
 }
 
 static Janet get_der(int32_t argc, Janet *argv) {
@@ -172,7 +226,7 @@ static Janet rsa_decrypt(int32_t argc, Janet *argv) {
   JanetBuffer *buf = janet_unwrap_buffer(argv[1]);
   // unwrap each element in array
   // Use the C function to encrypt the buffer
-  struct rsa_info info;
+  struct rsa_info info = { 0 };
   info.key = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("key", 3)));
   info.encryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("ectx", 4)));
   info.decryption_ctx = janet_unwrap_pointer(janet_table_get(rsa, WRAP_JANET_STRING("dctx", 4)));
