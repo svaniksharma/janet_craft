@@ -264,7 +264,6 @@ static Janet sha1_hexdigest(int32_t argc, Janet *argv) {
     janet_buffer_push_bytes(hex_buf, (unsigned char *) "-", 1);
   janet_buffer_push_bytes(hex_buf, (unsigned char *) hex, strlen(hex));
   JanetString hex_str = janet_string(hex_buf->data, hex_buf->count);
-  janet_buffer_deinit(hex_buf);
   OPENSSL_free(hex_ptr);
   return janet_wrap_string(hex_str);
 }
