@@ -12,4 +12,4 @@
 (declare-native
   :name "ssl"
   :source ["ssl.c"]
-  :cflags [;default-cflags "-lssl" "-lcrypto" "-lcurl"])
+  :lflags ["-lssl" "-lcrypto" "-lcurl"])

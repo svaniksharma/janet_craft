@@ -105,7 +105,6 @@ void *unwrap_ssl_ptr(JanetTable *table, const char *name, size_t len) {
   return ptr->ptr;
 }
 
-
 static int rsa_info_gc(void *data, size_t len) {
   (void) len;
   janet_table_deinit((JanetTable *) data);
@@ -161,6 +160,7 @@ static Janet send_auth_req(int32_t argc, Janet *argv) {
 }
 
 static Janet make_rsa_info(int32_t argc, Janet *argv) {
+  janet_fixarity(argc, 0);
   // create a Janet table with 3 elements
   JanetTable *rsa = (JanetTable *) janet_abstract(&rsa_info_type, sizeof(JanetTable));
   rsa->gc = (JanetGCObject){0, NULL};
