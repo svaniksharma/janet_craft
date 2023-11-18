@@ -20,30 +20,32 @@
                            :long 8
                            :float 4
                            :double 8
-                           :string 100
                            :chat (+ (* 262144 4) 3)
                            :identifier (+ (* 32767 4) 3)
                            :varint 5
                            :varlong 10
-                           :entity_metadata 1
-                           :slot 1
-                           :nbt_tag 1
                            :position 8
                            :angle 1
                            :uuid 16
-                           :optional_x 1
-                           :array_x 1
-                           :x_enum 1
-                           :byte_array 1
                            })
 
 (defn calc-size
   "Calculates the packer header size"
   [& types]
-  (+ ;(map datatype-size-table types)))
-(test (calc-size :varint :varint))
-(test (calc-size :varint :varint :byte_array :boolean :boolean :position))
+  (match types
+    (tuple) 0
+    [:string n & rest] (+ (+ 3 (* 4 n)) (calc-size ;rest))
+    [head & rest] (+ (datatype-size-table head) (calc-size ;rest)))
+  )
+(test (calc-size :string 34 :varint :varint) 149)
+(test (calc-size :varint :varint :boolean :boolean :position) 20)
 
+(defn get-pkt-size
+  "Gets the packet size, including the header"
+  [& types]
+  (calc-size :varint :varint ;types))
+(test (get-pkt-size :varint :string 255 :unsigned_short :varint) 1045) # handshake
+(test (get-pkt-size :string 16 :uuid) 93) # login start
 
 # <Generation of public/private key pair>
 (def SERVER_INFO (ssl/new))
@@ -52,22 +54,6 @@
 
 # Endpoint for server-side authentication
 (def ENCRYPTION_ENDPOINT "https://sessionserver.mojang.com/session/minecraft/hasJoined")
-
-(defn get-size
-  "Gets the max size of a datatype (if it's a string, the optional size is used for calculation)"
-  [name &opt size]
-  (if (compare= name :string)
-    (+ (* 4 size) 3)
-    (get datatype-size-table name)))
-# (defn calc-handshake-size
-#   "Calculates the maximum size of the handshake data"
-#   []
-#   (+ (calc-packet-header-size) (get-size :varint) (get-size :string 255) (get-size :unsigned_short) (get-size :varint)))
-#
-# (defn calc-login-start-size
-#   "Calculates the maximum size of the login start data"
-#   []
-#   (+ (calc-packet-header-size) (get-size :string 16) (get-size :uuid)))
 
 (defn make-byte-fiber
   "Makes a fiber that generates the next byte from a buffer"
@@ -273,7 +259,7 @@
 (defn handle-login-start
   "Handles status=2 in handshake"
   [connection]
-  (def packet_data (read-pkt connection 10000)) # placeholder
+  (def packet_data (read-pkt connection (get-pkt-size :string 16 :uuid))) # placeholder
   (def name (read-string packet_data))
   (def uuid (read-uuid packet_data))
   (handle-encryption connection name uuid))
@@ -282,10 +268,13 @@
   "Handle connection in a separate fiber"
   [connection]
   (defer (:close connection)
-    (def packet_data (read-pkt connection 10000))
+    (def packet_data (read-pkt connection (get-pkt-size :varint :string 255 :unsigned_short :varint)))
     (def handshake_result (parse-handshake-msg packet_data))
     (if (= 2 (get handshake_result :state))
       (handle-login-start connection) (handle-status connection))))
+
+# Uncomment below when running `judge`
+# (quit)
 
 # Main code
 (print "Server is up and ready")
