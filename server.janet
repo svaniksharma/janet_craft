@@ -129,10 +129,12 @@
 (defmacro read-bytes
   "Reads a packet according to the given layout"
   [pkt_fiber & read-types]
-  
-  ~(upscope
-    ,;(mapcat (fn [ttype] [~(pp (,(symbol (string "read-" ttype)) ,pkt_fiber))]) read-types)
-    )
+  (with-syms [$parsed-table]
+     ~(upscope
+       (def ,$parsed-table ,@{})
+
+       ,;(mapcat (fn [kv] [~(put ,$parsed-table ,(0 kv) (,(symbol (string "read-" (1 kv))) ,pkt_fiber))]) (pairs (table ;read-types)))
+     ))
   )
 
 
@@ -153,7 +155,8 @@
   [connection size]
   (def buf (ev/read connection size nil TIMEOUT))
   (def bytes (make-byte-fiber buf))
-  (read-bytes bytes :varint :varint)
+  (def dummy-header (read-bytes bytes :packet_size :varint :packet_id :varint))
+  (pp dummy-header)
   (def packet_header (parse-packet-header bytes))
   (def start (get packet_header :packet_header_size))
   (def nbytes (- (get packet_header :packet_size) (get packet_header :packet_id_bytes)))
