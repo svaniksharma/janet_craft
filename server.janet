@@ -13,9 +13,9 @@
 (def datatype-size-table @{
                            :boolean 1
                            :byte 1
-                           :unsigned_byte 1
+                           :unsigned-byte 1
                            :short 3
-                           :unsigned_short 2
+                           :unsigned-short 2
                            :int 4
                            :long 8
                            :float 4
@@ -44,7 +44,7 @@
   "Gets the packet size, including the header"
   [& types]
   (calc-size :varint :varint ;types))
-(test (get-pkt-size :varint :string 255 :unsigned_short :varint) 1045) # handshake
+(test (get-pkt-size :varint :string 255 :unsigned-short :varint) 1045) # handshake
 (test (get-pkt-size :string 16 :uuid) 93) # login start
 
 # <Generation of public/private key pair>
@@ -126,6 +126,16 @@
   [buf bytes]
   (buffer/push buf bytes))
 
+(defmacro read-bytes
+  "Reads a packet according to the given layout"
+  [pkt_fiber & read-types]
+  
+  ~(upscope
+    ,;(mapcat (fn [ttype] [~(pp (,(symbol (string "read-" ttype)) ,pkt_fiber))]) read-types)
+    )
+  )
+
+
 (defn parse-packet-header
   "Gets the packet size and its ID"
   [packet_data]
@@ -143,6 +153,7 @@
   [connection size]
   (def buf (ev/read connection size nil TIMEOUT))
   (def bytes (make-byte-fiber buf))
+  (read-bytes bytes :varint :varint)
   (def packet_header (parse-packet-header bytes))
   (def start (get packet_header :packet_header_size))
   (def nbytes (- (get packet_header :packet_size) (get packet_header :packet_id_bytes)))
@@ -268,7 +279,7 @@
   "Handle connection in a separate fiber"
   [connection]
   (defer (:close connection)
-    (def packet_data (read-pkt connection (get-pkt-size :varint :string 255 :unsigned_short :varint)))
+    (def packet_data (read-pkt connection (get-pkt-size :varint :string 255 :unsigned-short :varint)))
     (def handshake_result (parse-handshake-msg packet_data))
     (if (= 2 (get handshake_result :state))
       (handle-login-start connection) (handle-status connection))))
