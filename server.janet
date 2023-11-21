@@ -144,15 +144,15 @@
 (defmacro read-bytes
   "Reads a packet according to the given layout"
   [pkt_fiber & read-types]
-  (with-syms [$parsed-table $allpairs $pair $ops]
+  (with-syms [$parsed-table $tuple-pairs]
      ~(upscope
-       (def ,$parsed-table ,@{})
-       (def ,$ops ,@[])
-       (def ,$allpairs (map tupleify (make-pairs ,;read-types)))
-       #(loop [,$pair :in ,$allpairs]
-         #(pp ['pp ,$parsed-table]))
-       (map eval (mapcat (fn [kv] [(put ,$parsed-table (0 kv) ((eval (symbol (string "read-" (first (1 kv))))) ,pkt_fiber ;(tuple/slice (1 kv) 1)))]) (map tupleify (make-pairs ,;read-types)))) # pass the table as argument
-      ,$parsed-table)
+        (def ,$parsed-table ,@{})
+        (def ,$tuple-pairs (map tupleify (make-pairs ,;read-types)))
+        # If we have something like [:string 255] or [:byte-array 100], then
+        # (first (1 kv)) will get the :string/:byte-array part, and the
+        # tuple/slice will get the 255/100 part and splice them as arguments
+        (map (fn [kv] (put ,$parsed-table (0 kv) ((eval (symbol (string "read-" (first (1 kv))))) ,pkt_fiber ;(tuple/slice (1 kv) 1)))) ,$tuple-pairs)
+        ,$parsed-table)
      )
   )
 
