@@ -126,15 +126,30 @@
   [buf bytes]
   (buffer/push buf bytes))
 
+(defn make-pairs
+  "Groups elements into 2-tuples"
+  [& elems]
+  (match elems
+    (tuple) @[]
+    [x y & rest] (array/concat @[@[x y]] (make-pairs ;rest)))
+ )
+
+(defn tupleify
+  "Makes second argument of tuple into a tuple if not already one"
+  [twotuple]
+  (def [x y] twotuple)
+  (if (indexed? y) twotuple (tuple x (tuple y))))
+
 (defmacro read-bytes
   "Reads a packet according to the given layout"
   [pkt_fiber & read-types]
-  (with-syms [$parsed-table]
+  (with-syms [$parsed-table $allpairs $pair]
      ~(upscope
        (def ,$parsed-table ,@{})
-
-       ,;(mapcat (fn [kv] [~(put ,$parsed-table ,(0 kv) (,(symbol (string "read-" (1 kv))) ,pkt_fiber))]) (pairs (table ;read-types)))
-     ))
+       (map eval (mapcat (fn [kv] [~(pp ,(symbol (string "read-" (first (1 kv)))))]) (map tupleify (make-pairs ,;read-types)))) # pass the table as argument
+#        ,;(mapcat (fn [kv] [~(put ,$parsed-table ,(0 kv) (,(symbol (string "read-" (1 kv))) ,pkt_fiber))]) (map tupleify (make-pairs ,;read-types)))
+      ,$parsed-table)
+     )
   )
 
 
@@ -152,15 +167,11 @@
 
 (defn read-pkt
   "Reads the data of the packet"
-  [connection size]
+  [connection & pkt-layout]
+  (def size (get-pkt-size ;(flatten (values (table ;pkt-layout)))))
   (def buf (ev/read connection size nil TIMEOUT))
   (def bytes (make-byte-fiber buf))
-  (def dummy-header (read-bytes bytes :packet_size :varint :packet_id :varint))
-  (pp dummy-header)
-  (def packet_header (parse-packet-header bytes))
-  (def start (get packet_header :packet_header_size))
-  (def nbytes (- (get packet_header :packet_size) (get packet_header :packet_id_bytes)))
-  (make-byte-fiber (buffer/slice buf start (+ start nbytes))))
+  (read-bytes bytes :packet_size :varint :packet_id :varint ;pkt-layout))
 
 (defn parse-handshake-msg
   "Parses the handshake data"
@@ -282,10 +293,11 @@
   "Handle connection in a separate fiber"
   [connection]
   (defer (:close connection)
-    (def packet_data (read-pkt connection (get-pkt-size :varint :string 255 :unsigned-short :varint)))
-    (def handshake_result (parse-handshake-msg packet_data))
-    (if (= 2 (get handshake_result :state))
-      (handle-login-start connection) (handle-status connection))))
+    (def packet_data (read-pkt connection :protocol_num :varint :server_address [:string 255] :server_port :unsigned-short :state :varint))
+    (pp packet_data)))
+#    (def handshake_result (parse-handshake-msg packet_data))
+#    (if (= 2 (get handshake_result :state))
+#      (handle-login-start connection) (handle-status connection))))
 
 # Uncomment below when running `judge`
 # (quit)
