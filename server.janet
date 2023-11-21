@@ -197,16 +197,6 @@
   (buffer/push pkt pkt-data)
   (ev/write connection pkt TIMEOUT))
 
-(defn write-encryption-req
-  "Writes an encryption request to the client."
-  [connection]
-  (def encrypt_buf @"")
-  (def verify_token @"")
-  (random/buf verify_token 4)
-  (write-bytes encrypt_buf :string "" :varint (length SERVER_PUBLIC_KEY) :byte-array SERVER_PUBLIC_KEY :varint (length verify_token) :byte-array verify_token)
-  (write-pkt connection 0x1 encrypt_buf)
-  verify_token)
-
 (defn calc-client-hash
   "Calculates the SHA1 hex digest"
   [shared_secret]
