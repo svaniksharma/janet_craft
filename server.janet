@@ -70,34 +70,36 @@
 # See https://wiki.vg/Protocol#VarInt_and_VarLong
 (defn read-varint
   "Reads a varint according to LEB128 signed encoding"
-  [buf &opt return_bytes]
+  [buf]
   (def segment_bits 0x7F)
   (def continue_bits 0x80)
   (var pos 0)
   (var value 0)
-  (var bytes 0)
   (while (< pos 32)
     (def cur_byte (next-byte buf))
-    (++ bytes)
     (set value (bor value (blshift (band cur_byte segment_bits) pos)))
     (if (= (band cur_byte continue_bits) 0)
       (break))
     (+= pos 7))
-  (if return_bytes @{:value value :bytes bytes} value))
+  value)
 
 (defn write-varint
-  "Writes a varint to LEB128 signed encoding"
+  "Writes an integer to LEB128 signed encoding"
   [buf value]
   (def segment_bits 0x7F)
   (def continue_bit 0x80)
+  (var bytes 0)
   (var v value)
   (forever
     (if (= 0 (band v (bnot segment_bits)))
-      (do 
+      (do
+        (++ bytes)
         (buffer/push-byte buf v)
         (break)))
+    (++ bytes)
     (buffer/push-byte buf (bor (band v segment_bits) continue_bit))
-    (set v (brshift v 7)))) 
+    (set v (brshift v 7)))
+  bytes)
 
 (defn read-unsigned-short
   "Reads an unsigned short"
@@ -111,7 +113,13 @@
   [buf n]
   (def strlen (read-varint buf))
   (if (< strlen n)
-    (buffer/push-byte @"" ;(take strlen buf)) nil)) 
+    (buffer/push-byte @"" ;(take strlen buf)) nil))
+
+(defn write-string 
+  "Writes a string to a buffer"
+  [buf str]
+  (write-varint buf (length str))
+  (buffer/push-string buf str))
   
 (defn read-uuid
   "Reads 16 bytes corresponding to a UUID"
@@ -157,18 +165,14 @@
      )
   )
 
-
-(defn parse-packet-header
-  "Gets the packet size and its ID"
-  [packet_data]
-  (def {:value packet_size :bytes packet_size_bytes} (read-varint packet_data true))
-  (def {:value packet_id :bytes packet_id_bytes} (read-varint packet_data true))
-  (def packet_header_size (+ packet_size_bytes packet_id_bytes))
-  @{ :packet_size packet_size
-     :packet_id packet_id
-     :packet_id_bytes packet_id_bytes
-     :packet_header_size packet_header_size
-   })
+(defmacro write-bytes
+  "Writes a packet according to the given layout"
+  [buf & write-types]
+  (with-syms [$tuple-pairs]
+    ~(upscope
+       (def ,$tuple-pairs (map tupleify (make-pairs ,;write-types)))
+       (map (fn [kv] ((eval (symbol (string "write-" (0 kv)))) ,buf ;(1 kv))) ,$tuple-pairs)
+     )))
 
 (defn read-pkt
   "Reads the data of the packet"
@@ -178,37 +182,28 @@
   (def bytes (make-byte-fiber buf))
   (read-bytes bytes :packet_size :varint :packet_id :varint ;pkt-layout))
 
-(defn make-packet-header
-  "Make a packet header"
-  [id buf_len]
-  (def idbuf @"")
-  (write-varint idbuf id)
-  (def idbytes (length idbuf))
-  (def header @"")
-  (write-varint header (+ buf_len idbytes))
-  (write-varint header id)
-  header)
-
 (defn write-pkt
   "Writes data as packet"
-  [connection id buf]
-  (def pkt @"")
-  (def packet_header (make-packet-header id (length buf)))
-  (buffer/push pkt packet_header)
-  (buffer/push pkt buf)
+  [connection id & pkt-layout]
+  (def pkt @"") # packet data + packet header
+  (def pkt-data @"")
+  (write-bytes pkt-data ;pkt-layout)
+  # Packet header
+  (def idbuf @"")
+  (def idbytes (write-varint idbuf id))
+  (write-varint pkt (+ (length pkt-data) idbytes))
+  (buffer/push pkt idbuf)
+  # Packet data
+  (buffer/push pkt pkt-data)
   (ev/write connection pkt TIMEOUT))
 
 (defn write-encryption-req
   "Writes an encryption request to the client."
   [connection]
-  (def encrypt_buf @"\0") # 0 byte since Server ID is empty
-  (write-varint encrypt_buf (length SERVER_PUBLIC_KEY))
-  (write-byte-array encrypt_buf SERVER_PUBLIC_KEY)
+  (def encrypt_buf @"")
   (def verify_token @"")
   (random/buf verify_token 4)
-  (assert (= (length verify_token) 4))
-  (write-varint encrypt_buf (length verify_token))
-  (write-byte-array encrypt_buf verify_token)
+  (write-bytes encrypt_buf :string "" :varint (length SERVER_PUBLIC_KEY) :byte-array SERVER_PUBLIC_KEY :varint (length verify_token) :byte-array verify_token)
   (write-pkt connection 0x1 encrypt_buf)
   verify_token)
 
@@ -240,7 +235,9 @@
 (defn handle-encryption
   "Handles setting up encryption"
   [connection name uuid]
-  (def verify_token (write-encryption-req connection))
+  (def verify_token @"")
+  (random/buf verify_token 4)
+  (write-pkt connection 0x1 :string "" :varint (length SERVER_PUBLIC_KEY) :byte-array SERVER_PUBLIC_KEY :varint (length verify_token) :byte-array verify_token)
   (def encryption_response (read-pkt connection :shared_secret_len :varint :shared_secret [:byte-array 128] :verify_token_len :varint :verify_token [:byte-array 128]))
   (def decrypted_verify_token (ssl/decrypt SERVER_INFO (get encryption_response :verify_token)))
   (if (deep= decrypted_verify_token verify_token)
