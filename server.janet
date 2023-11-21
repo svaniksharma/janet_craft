@@ -35,6 +35,7 @@
   (match types
     (tuple) 0
     [:string n & rest] (+ (+ 3 (* 4 n)) (calc-size ;rest))
+    [:byte-array n & rest] (+ n (calc-size ;rest))
     [head & rest] (+ (datatype-size-table head) (calc-size ;rest)))
   )
 (test (calc-size :string 34 :varint :varint) 149)
@@ -177,19 +178,6 @@
   (def bytes (make-byte-fiber buf))
   (read-bytes bytes :packet_size :varint :packet_id :varint ;pkt-layout))
 
-# (defn parse-handshake-msg
-#   "Parses the handshake data"
-#   [handshake_msg]
-#   (def protocol_num (read-varint handshake_msg))
-#   (def server_address (read-string handshake_msg))
-#   (def server_port (read-unsigned-short handshake_msg))
-#   (def state (read-varint handshake_msg))
-#   @{ :protocol_num protocol_num
-#      :server_address server_address
-#      :server_port server_port
-#      :state state
-#   })
-
 (defn make-packet-header
   "Make a packet header"
   [id buf_len]
@@ -224,20 +212,6 @@
   (write-pkt connection 0x1 encrypt_buf)
   verify_token)
 
-(defn read-encryption-response
-  "Reads an encryption response from client"
-  [connection]
-  (def resp (read-pkt connection 10000)) # the 10000 is just a placeholder for now
-  (def shared_secret_len (read-varint resp))
-  (def shared_secret (read-byte-array resp shared_secret_len))
-  (def verify_token_len (read-varint resp))
-  (def verify_token (read-byte-array resp verify_token_len))
-  @{ :shared_secret_len shared_secret_len
-     :shared_secret shared_secret
-     :verify_token_len verify_token_len
-     :verify_token verify_token
-   })
-
 (defn calc-client-hash
   "Calculates the SHA1 hex digest"
   [shared_secret]
@@ -267,7 +241,7 @@
   "Handles setting up encryption"
   [connection name uuid]
   (def verify_token (write-encryption-req connection))
-  (def encryption_response (read-encryption-response connection))
+  (def encryption_response (read-pkt connection :shared_secret_len :varint :shared_secret [:byte-array 128] :verify_token_len :varint :verify_token [:byte-array 128]))
   (def decrypted_verify_token (ssl/decrypt SERVER_INFO (get encryption_response :verify_token)))
   (if (deep= decrypted_verify_token verify_token)
     (do 
@@ -276,8 +250,8 @@
       (def resp (send-auth-req name client_hash))
       (def resp_data (json/decode resp))
       (printf "%j" resp_data)
-      (def aes_info (setup-aes-encryption resp_data decrypted_shared_secret))
-      (def success_pkt (make-login-success resp_data))
+      #(def aes_info (setup-aes-encryption resp_data decrypted_shared_secret))
+      #(def success_pkt (make-login-success resp_data))
       # (write-pkt connection 0x2 success_pkt aes_info)
       )))
 # TODO
@@ -288,20 +262,16 @@
 (defn handle-login-start
   "Handles status=2 in handshake"
   [connection]
-  (def packet_data (read-pkt connection (get-pkt-size :string 16 :uuid))) # placeholder
-  (def name (read-string packet_data 16))
-  (def uuid (read-uuid packet_data))
-  (handle-encryption connection name uuid))
+  (def login-start-result (read-pkt connection :username [:string 16] :userid :uuid))
+  (handle-encryption connection (login-start-result :username) (login-start-result :userid)))
 
 (defn main-server-handler
   "Handle connection in a separate fiber"
   [connection]
   (defer (:close connection)
-    (def packet_data (read-pkt connection :protocol_num :varint :server_address [:string 255] :server_port :unsigned-short :state :varint))
-    (pp packet_data)))
-#    (def handshake_result (parse-handshake-msg packet_data))
-#    (if (= 2 (get handshake_result :state))
-#      (handle-login-start connection) (handle-status connection))))
+    (def handshake_result (read-pkt connection :protocol_num :varint :server_address [:string 255] :server_port :unsigned-short :state :varint))
+    (if (= 2 (get handshake_result :state))
+      (handle-login-start connection) (handle-status connection))))
 
 # Uncomment below when running `judge`
 # (quit)
