@@ -211,17 +211,6 @@
   (def mojang_url (string ENCRYPTION_ENDPOINT "?username=" name "&serverId=" client_hash)) 
   (ssl/get mojang_url))
 
-# TODO
-(defn setup-aes-encryption
-  "Sets up AES/CFB8 encryption"
-  [resp_data shared_secret]
-  )
-
-# TODO
-(defn make-login-success
-  "Makes a login success packet"
-  [resp_data])
-
 (defn handle-encryption
   "Handles setting up encryption"
   [connection name uuid]
@@ -237,9 +226,10 @@
       (def resp (send-auth-req name client_hash))
       (def resp_data (json/decode resp))
       (printf "%j" resp_data)
-      #(def aes_info (setup-aes-encryption resp_data decrypted_shared_secret))
-      #(def success_pkt (make-login-success resp_data))
-      # (write-pkt connection 0x2 success_pkt aes_info)
+      (def aes_info (ssl/setup-aes decrypted_shared_secret))
+      # (write-pkt connection 0x2 :uuid uuid :string name :varint num_props
+                   # :string resp_data_name :string resp_data_value :boolean
+                   # false)
       )))
 # TODO
 (defn handle-status

@@ -29,6 +29,10 @@ struct ssl_ptr {
   } ptr_free;
 };
 
+struct aes_ptr {
+  EVP_CIPHER_CTX *ctx;
+};
+
 struct rsa_info gen_rsa_key_pair();
 unsigned char *encrypt_buf(struct rsa_info *info, unsigned char *data, size_t data_size, size_t *encrypted_size);
 unsigned char *decrypt_buf(struct rsa_info *info, unsigned char *data, size_t data_size, size_t *decrypted_size);
@@ -121,6 +125,71 @@ static const JanetAbstractType rsa_info_type = {
   .name = "rsa_info",
   .gc = rsa_info_gc,
   .gcmark = rsa_info_gcmark,
+  .get = NULL,
+  .put = NULL,
+  .marshal = NULL,
+  .unmarshal = NULL,
+  .tostring = NULL,
+  .compare = NULL,
+  .hash = NULL,
+  .next = NULL,
+  .call = NULL,
+  .length = NULL,
+  .bytes = NULL,
+};
+
+static int aes_ptr_gc(void *data, size_t len) {
+  (void) len;
+  struct aes_ptr *ptr = (struct aes_ptr *) data;
+  EVP_CIPHER_CTX_free(ptr->ctx);
+  return 0;
+}
+
+static int aes_ptr_gcmark(void *data, size_t len) {
+  (void) len;
+  janet_mark(janet_wrap_abstract((struct aes_ptr *) data));
+  return 0;
+}
+
+static const JanetAbstractType aes_ptr_type = {
+  .name = "aes_ptr",
+  .gc = aes_ptr_gc,
+  .gcmark = aes_ptr_gcmark,
+  .get = NULL,
+  .put = NULL,
+  .marshal = NULL,
+  .unmarshal = NULL,
+  .tostring = NULL,
+  .compare = NULL,
+  .hash = NULL,
+  .next = NULL,
+  .call = NULL,
+  .length = NULL,
+  .bytes = NULL,
+};
+
+static struct aes_ptr *make_aes_ptr(void *ctx) {
+  struct aes_ptr *p = janet_abstract(&aes_ptr_type, sizeof(struct aes_ptr));
+  p->ctx = ctx;
+  return p;
+}
+
+static int aes_info_gc(void *data, size_t len) {
+  (void) len;
+  janet_table_deinit((JanetTable *) data);
+  return 0;
+}
+
+static int aes_info_gcmark(void *data, size_t len) {
+  (void) len;
+  janet_mark(janet_wrap_table((JanetTable *) data));
+  return 0;
+}
+
+static const JanetAbstractType aes_info_type = {
+  .name = "aes_info",
+  .gc = aes_info_gc,
+  .gcmark = aes_info_gcmark,
   .get = NULL,
   .put = NULL,
   .marshal = NULL,
@@ -249,6 +318,22 @@ static Janet rsa_decrypt(int32_t argc, Janet *argv) {
   return janet_wrap_buffer(buffer);
 }
 
+static Janet aes_setup(int32_t argc, Janet *argv) {
+  janet_fixarity(argc, 1);
+  // create a Janet table with 3 elements
+  JanetTable *aes = (JanetTable *) janet_abstract(&aes_info_type, sizeof(JanetTable));
+  aes->gc = (JanetGCObject){0, NULL};
+  janet_table_init_raw(aes, 3);
+  EVP_CIPHER_CTX *encrypt_ctx = EVP_CIPHER_CTX_new();
+  EVP_CIPHER_CTX *decrypt_ctx = EVP_CIPHER_CTX_new();
+  Janet ectx = janet_wrap_abstract(make_aes_ptr(encrypt_ctx)); 
+  Janet dctx = janet_wrap_abstract(make_aes_ptr(decrypt_ctx));
+  janet_table_put(aes, WRAP_JANET_STRING("shared_secret", 13), argv[0]);
+  janet_table_put(aes, WRAP_JANET_STRING("ectx", 4), ectx);
+  janet_table_put(aes, WRAP_JANET_STRING("dctx", 4), dctx);
+  return janet_wrap_abstract(aes);
+}
+
 static Janet sha1_hexdigest(int32_t argc, Janet *argv) {
   janet_fixarity(argc, 2);
   JanetBuffer *shared_secret = janet_unwrap_buffer(argv[0]);
@@ -275,6 +360,7 @@ static const JanetReg cfuns[] = {
   {"encrypt", rsa_encrypt, "Encrypts data with an rsa_info struct"},
   {"decrypt", rsa_decrypt, "Decrypts data with an rsa_info struct"},
   {"sha1", sha1_hexdigest, "SHA1 hex digest"},
+  {"setup-aes", aes_setup, "Sets up AES given shared secret"},
   {NULL, NULL, NULL}
 };
 
