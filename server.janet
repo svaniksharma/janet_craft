@@ -107,9 +107,10 @@
 
 (defn read-string
   "Read a string from a fiber"
-  [buf]
+  [buf n]
   (def strlen (read-varint buf))
-  (buffer/push-byte @"" ;(take strlen buf))) 
+  (if (< strlen n)
+    (buffer/push-byte @"" ;(take strlen buf)) nil)) 
   
 (defn read-uuid
   "Reads 16 bytes corresponding to a UUID"
@@ -143,11 +144,14 @@
 (defmacro read-bytes
   "Reads a packet according to the given layout"
   [pkt_fiber & read-types]
-  (with-syms [$parsed-table $allpairs $pair]
+  (with-syms [$parsed-table $allpairs $pair $ops]
      ~(upscope
        (def ,$parsed-table ,@{})
-       (map eval (mapcat (fn [kv] [~(pp ,(symbol (string "read-" (first (1 kv)))))]) (map tupleify (make-pairs ,;read-types)))) # pass the table as argument
-#        ,;(mapcat (fn [kv] [~(put ,$parsed-table ,(0 kv) (,(symbol (string "read-" (1 kv))) ,pkt_fiber))]) (map tupleify (make-pairs ,;read-types)))
+       (def ,$ops ,@[])
+       (def ,$allpairs (map tupleify (make-pairs ,;read-types)))
+       #(loop [,$pair :in ,$allpairs]
+         #(pp ['pp ,$parsed-table]))
+       (map eval (mapcat (fn [kv] [(put ,$parsed-table (0 kv) ((eval (symbol (string "read-" (first (1 kv))))) ,pkt_fiber ;(tuple/slice (1 kv) 1)))]) (map tupleify (make-pairs ,;read-types)))) # pass the table as argument
       ,$parsed-table)
      )
   )
@@ -173,18 +177,18 @@
   (def bytes (make-byte-fiber buf))
   (read-bytes bytes :packet_size :varint :packet_id :varint ;pkt-layout))
 
-(defn parse-handshake-msg
-  "Parses the handshake data"
-  [handshake_msg]
-  (def protocol_num (read-varint handshake_msg))
-  (def server_address (read-string handshake_msg))
-  (def server_port (read-unsigned-short handshake_msg))
-  (def state (read-varint handshake_msg))
-  @{ :protocol_num protocol_num
-     :server_address server_address
-     :server_port server_port
-     :state state
-  })
+# (defn parse-handshake-msg
+#   "Parses the handshake data"
+#   [handshake_msg]
+#   (def protocol_num (read-varint handshake_msg))
+#   (def server_address (read-string handshake_msg))
+#   (def server_port (read-unsigned-short handshake_msg))
+#   (def state (read-varint handshake_msg))
+#   @{ :protocol_num protocol_num
+#      :server_address server_address
+#      :server_port server_port
+#      :state state
+#   })
 
 (defn make-packet-header
   "Make a packet header"
@@ -285,7 +289,7 @@
   "Handles status=2 in handshake"
   [connection]
   (def packet_data (read-pkt connection (get-pkt-size :string 16 :uuid))) # placeholder
-  (def name (read-string packet_data))
+  (def name (read-string packet_data 16))
   (def uuid (read-uuid packet_data))
   (handle-encryption connection name uuid))
 
