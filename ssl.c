@@ -324,13 +324,10 @@ static Janet aes_setup(int32_t argc, Janet *argv) {
   JanetTable *aes = (JanetTable *) janet_abstract(&aes_info_type, sizeof(JanetTable));
   aes->gc = (JanetGCObject){0, NULL};
   janet_table_init_raw(aes, 3);
-  EVP_CIPHER_CTX *encrypt_ctx = EVP_CIPHER_CTX_new();
-  EVP_CIPHER_CTX *decrypt_ctx = EVP_CIPHER_CTX_new();
-  Janet ectx = janet_wrap_abstract(make_aes_ptr(encrypt_ctx)); 
-  Janet dctx = janet_wrap_abstract(make_aes_ptr(decrypt_ctx));
+  EVP_CIPHER_CTX *ctx_ptr = EVP_CIPHER_CTX_new();
+  Janet ctx = janet_wrap_abstract(make_aes_ptr(ctx_ptr)); 
   janet_table_put(aes, WRAP_JANET_STRING("shared_secret", 13), argv[0]);
-  janet_table_put(aes, WRAP_JANET_STRING("ectx", 4), ectx);
-  janet_table_put(aes, WRAP_JANET_STRING("dctx", 4), dctx);
+  janet_table_put(aes, WRAP_JANET_STRING("ctx", 3), ctx);
   return janet_wrap_abstract(aes);
 }
 
