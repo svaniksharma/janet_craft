@@ -174,6 +174,12 @@ static struct aes_ptr *make_aes_ptr(void *ctx) {
   return p;
 }
 
+void *unwrap_aes_ptr(JanetTable *table, const char *name, size_t len) {
+  Janet value = janet_table_get(table, WRAP_JANET_STRING(name, len));
+  struct aes_ptr *ptr = janet_unwrap_abstract(value);
+  return ptr->ctx;
+}
+
 static int aes_info_gc(void *data, size_t len) {
   (void) len;
   janet_table_deinit((JanetTable *) data);
@@ -324,11 +330,74 @@ static Janet aes_setup(int32_t argc, Janet *argv) {
   JanetTable *aes = (JanetTable *) janet_abstract(&aes_info_type, sizeof(JanetTable));
   aes->gc = (JanetGCObject){0, NULL};
   janet_table_init_raw(aes, 3);
-  EVP_CIPHER_CTX *ctx_ptr = EVP_CIPHER_CTX_new();
-  Janet ctx = janet_wrap_abstract(make_aes_ptr(ctx_ptr)); 
+  EVP_CIPHER_CTX *ectx_ptr = EVP_CIPHER_CTX_new();
+  if (!ectx_ptr) {
+    return janet_wrap_nil();
+  }
+  EVP_CIPHER_CTX *dctx_ptr = EVP_CIPHER_CTX_new();
+  if (!dctx_ptr) {
+    EVP_CIPHER_CTX_free(ectx_ptr);
+    return janet_wrap_nil();
+  }
+  JanetBuffer *shared_secret = janet_unwrap_buffer(argv[0]);
+  if (!EVP_EncryptInit(ectx_ptr, EVP_aes_128_cfb8(), shared_secret->data, shared_secret->data) ||
+      !EVP_DecryptInit(dctx_ptr, EVP_aes_128_cfb8(), shared_secret->data, shared_secret->data)) {
+    EVP_CIPHER_CTX_free(ectx_ptr);
+    EVP_CIPHER_CTX_free(dctx_ptr);
+    return janet_wrap_nil();
+  }
+  Janet ectx = janet_wrap_abstract(make_aes_ptr(ectx_ptr)); 
+  Janet dctx = janet_wrap_abstract(make_aes_ptr(dctx_ptr));
   janet_table_put(aes, WRAP_JANET_STRING("shared_secret", 13), argv[0]);
-  janet_table_put(aes, WRAP_JANET_STRING("ctx", 3), ctx);
+  janet_table_put(aes, WRAP_JANET_STRING("ectx", 4), ectx);
+  janet_table_put(aes, WRAP_JANET_STRING("dctx", 4), dctx);
   return janet_wrap_abstract(aes);
+}
+
+static Janet aes_encrypt_update(int32_t argc, Janet *argv) {
+  janet_fixarity(argc, 3);
+  JanetTable *aes = janet_unwrap_table(argv[0]);
+  JanetBuffer *buf = janet_unwrap_buffer(argv[1]);
+  JanetBuffer *data = janet_unwrap_buffer(argv[2]);
+  EVP_CIPHER_CTX *ectx_ptr = unwrap_aes_ptr(aes, "ectx", 4);
+  int ciphertext_len = 0;
+  // AES ciphertext length depends on the block size: https://stackoverflow.com/questions/3283787/size-of-data-after-aes-cbc-and-aes-ecb-encryption
+  uint8_t *ciphertext = OPENSSL_malloc(data->count + 16 - (data->count % 16));
+  if (!ciphertext) {
+    DIE();
+    return janet_wrap_nil();
+  }
+  if (!EVP_EncryptUpdate(ectx_ptr, ciphertext, &ciphertext_len, data->data, data->count)) {
+    DIE();
+    OPENSSL_free(ciphertext);
+    return janet_wrap_nil();
+  }
+  janet_buffer_push_bytes(buf, ciphertext, ciphertext_len);
+  OPENSSL_free(ciphertext);
+  return janet_wrap_buffer(buf);
+}
+
+static Janet aes_decrypt_update(int32_t argc, Janet *argv) {
+  janet_fixarity(argc, 3);
+  JanetTable *aes = janet_unwrap_table(argv[0]);
+  JanetBuffer *data = janet_unwrap_buffer(argv[1]);
+  int expected_size = janet_unwrap_integer(argv[2]);
+  EVP_CIPHER_CTX *dctx_ptr = unwrap_aes_ptr(aes, "dctx", 4);
+  int plaintext_len = 0;
+  uint8_t *plaintext = OPENSSL_malloc(expected_size);
+  if (!plaintext) {
+    DIE();
+    return janet_wrap_nil();
+  }
+  if (!EVP_DecryptUpdate(dctx_ptr, plaintext, &plaintext_len, data->data, data->count)) {
+    DIE();
+    OPENSSL_free(plaintext);
+    return janet_wrap_nil();
+  }
+  JanetBuffer *buf = janet_buffer(expected_size);
+  janet_buffer_push_bytes(buf, plaintext, plaintext_len);
+  OPENSSL_free(plaintext);
+  return janet_wrap_buffer(buf);
 }
 
 static Janet sha1_hexdigest(int32_t argc, Janet *argv) {
@@ -358,6 +427,8 @@ static const JanetReg cfuns[] = {
   {"decrypt", rsa_decrypt, "Decrypts data with an rsa_info struct"},
   {"sha1", sha1_hexdigest, "SHA1 hex digest"},
   {"setup-aes", aes_setup, "Sets up AES given shared secret"},
+  {"encrypt-aes", aes_encrypt_update, "Uses AES/CFB8 encryption and pushes cipher to buffer"},
+  {"decrypt-aes", aes_decrypt_update, "Uses AES/CFB8 decryption and pushes plaintext to buffer"},
   {NULL, NULL, NULL}
 };
 

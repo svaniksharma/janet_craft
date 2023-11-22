@@ -227,6 +227,10 @@
       (def resp_data (json/decode resp))
       (printf "%j" resp_data)
       (def aes_info (ssl/setup-aes decrypted_shared_secret))
+      (def mybuf @"")
+      (buffer/push (ssl/encrypt-aes aes_info mybuf @"This is a test"))
+      (buffer/push (ssl/encrypt-aes aes_info mybuf @"\nThis is also a test"))
+      (pp (ssl/decrypt-aes aes_info mybuf 10000))
       # (write-pkt connection 0x2 :uuid uuid :string name :varint num_props
                    # :string resp_data_name :string resp_data_value :boolean
                    # false)
