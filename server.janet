@@ -187,15 +187,15 @@
 
 (defn read-pkt
   "Reads the data of the packet"
-  [connection & pkt-layout]
+  [connection decryptor & pkt-layout]
   (def size (get-pkt-size ;(flatten (values (table ;pkt-layout)))))
   (def buf (ev/read connection size nil TIMEOUT))
-  (def bytes (make-byte-fiber buf))
+  (def bytes (make-byte-fiber (if (nil? decryptor) buf (ssl/decrypt-aes decryptor buf 10))))
   (read-bytes bytes :packet_size :varint :packet_id :varint ;pkt-layout))
 
 (defn write-pkt
   "Writes data as packet"
-  [connection id decryptor & pkt-layout]
+  [connection id encryptor & pkt-layout]
   (def pkt @"") # packet data + packet header
   (def pkt-data @"")
   (write-bytes pkt-data ;pkt-layout)
@@ -204,11 +204,13 @@
   (def idbytes (write-varint idbuf id))
   (def length-buf @"")
   (write-varint length-buf (+ (length pkt-data) idbytes))
-  (buffer/push pkt (if (nil? decryptor) length-buf (ssl/encrypt-aes decryptor @"" length-buf)))
-  (buffer/push pkt (if (nil? decryptor) idbuf (ssl/encrypt-aes decryptor @"" idbuf)))
+  (buffer/push pkt length-buf)
+  (buffer/push pkt idbuf)
   # Packet data
-  (buffer/push pkt (if (nil? decryptor) pkt-data (ssl/encrypt-aes decryptor @"" pkt-data)))
-  (ev/write connection pkt TIMEOUT))
+  (buffer/push pkt pkt-data)
+  (if (nil? encryptor) 
+    (ev/write connection pkt TIMEOUT)
+    (ev/write connection (ssl/encrypt-aes encryptor @"" pkt) TIMEOUT)))
 
 (defn calc-client-hash
   "Calculates the SHA1 hex digest"
@@ -230,22 +232,20 @@
   (def verify_token @"")
   (random/buf verify_token 4)
   (write-pkt connection 0x1 nil :string "" :varint (length SERVER_PUBLIC_KEY) :byte-array SERVER_PUBLIC_KEY :varint (length verify_token) :byte-array verify_token)
-  (def encryption_response (read-pkt connection :shared_secret_len :varint :shared_secret [:byte-array 128] :verify_token_len :varint :verify_token [:byte-array 128]))
+  (def encryption_response (read-pkt connection nil :shared_secret_len :varint :shared_secret [:byte-array 128] :verify_token_len :varint :verify_token [:byte-array 128]))
   (def decrypted_verify_token (ssl/decrypt SERVER_INFO (get encryption_response :verify_token)))
   (if (deep= decrypted_verify_token verify_token)
     (do 
       (def decrypted_shared_secret (ssl/decrypt SERVER_INFO (get encryption_response :shared_secret)))
       (def client_hash (calc-client-hash decrypted_shared_secret))
       (def resp (send-auth-req name client_hash))
-      (def resp_data (json/decode resp))
-      (printf "%j" resp_data)
+      (def resp-data (json/decode resp))
       (def aes-info (ssl/setup-aes decrypted_shared_secret))
-      (def properties (0 (resp_data "properties")))
-      (def num-properties (length properties))
-      (def player-id (base16/decode (resp_data "id")))
-      (if (= num-properties 2)
-          (write-pkt connection 0x2 aes-info :uuid player-id :string name :varint 3 :string (properties "name") :string (properties "value") :boolean false)
-          (write-pkt connection 0x2 aes-info :uuid player-id :string name :varint 4 :string (properties "name") :string (properties "value") :boolean true :string (properties "signature")))
+      (def player-id (base16/decode (resp-data "id")))
+      # The other JSON properties lead to a DecoderException on the client end
+      # for some reason. However, they don't seem to be necessary.
+      (write-pkt connection 0x2 aes-info :uuid player-id :string name :varint 0) # Login success
+      (pp (read-pkt connection aes-info)) # Login acknowledgement
     )))
 # TODO
 (defn handle-status
@@ -255,14 +255,14 @@
 (defn handle-login-start
   "Handles status=2 in handshake"
   [connection]
-  (def login-start-result (read-pkt connection :username [:string 16] :userid :uuid))
+  (def login-start-result (read-pkt connection nil :username [:string 16] :userid :uuid))
   (handle-encryption connection (login-start-result :username) (login-start-result :userid)))
 
 (defn main-server-handler
   "Handle connection in a separate fiber"
   [connection]
   (defer (:close connection)
-    (def handshake_result (read-pkt connection :protocol_num :varint :server_address [:string 255] :server_port :unsigned-short :state :varint))
+    (def handshake_result (read-pkt connection nil :protocol_num :varint :server_address [:string 255] :server_port :unsigned-short :state :varint))
     (if (= 2 (get handshake_result :state))
       (handle-login-start connection) (handle-status connection))))
 
