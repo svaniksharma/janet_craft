@@ -1,5 +1,6 @@
 (use jhydro)
 (use judge)
+(import base16)
 (import spork/json :as json)
 (import ./ssl/ssl :as ssl)
 
@@ -120,12 +121,7 @@
   [buf str]
   (write-varint buf (length str))
   (buffer/push-string buf str))
-  
-(defn read-uuid
-  "Reads 16 bytes corresponding to a UUID"
-  [buf]
-  (take 16 buf))
-
+ 
 (defn read-byte-array
   "Reads a byte array of specified length"
   [buf len]
@@ -135,6 +131,21 @@
   "Writes a byte array"
   [buf bytes]
   (buffer/push buf bytes))
+
+(defn read-uuid
+  "Reads 16 bytes corresponding to a UUID"
+  [buf]
+  (read-byte-array buf 16))
+
+(defn write-uuid
+  "Writes 16 bytes corresponding to a UUID"
+  [buf id]
+  (write-byte-array buf id))
+
+(defn write-boolean
+  "Writes a boolean to a buffer"
+  [buf byte]
+  (buffer/push-byte buf (if byte 1 0)))
 
 (defn make-pairs
   "Groups elements into 2-tuples"
@@ -184,17 +195,19 @@
 
 (defn write-pkt
   "Writes data as packet"
-  [connection id & pkt-layout]
+  [connection id decryptor & pkt-layout]
   (def pkt @"") # packet data + packet header
   (def pkt-data @"")
   (write-bytes pkt-data ;pkt-layout)
   # Packet header
   (def idbuf @"")
   (def idbytes (write-varint idbuf id))
-  (write-varint pkt (+ (length pkt-data) idbytes))
-  (buffer/push pkt idbuf)
+  (def length-buf @"")
+  (write-varint length-buf (+ (length pkt-data) idbytes))
+  (buffer/push pkt (if (nil? decryptor) length-buf (ssl/encrypt-aes decryptor @"" length-buf)))
+  (buffer/push pkt (if (nil? decryptor) idbuf (ssl/encrypt-aes decryptor @"" idbuf)))
   # Packet data
-  (buffer/push pkt pkt-data)
+  (buffer/push pkt (if (nil? decryptor) pkt-data (ssl/encrypt-aes decryptor @"" pkt-data)))
   (ev/write connection pkt TIMEOUT))
 
 (defn calc-client-hash
@@ -216,7 +229,7 @@
   [connection name uuid]
   (def verify_token @"")
   (random/buf verify_token 4)
-  (write-pkt connection 0x1 :string "" :varint (length SERVER_PUBLIC_KEY) :byte-array SERVER_PUBLIC_KEY :varint (length verify_token) :byte-array verify_token)
+  (write-pkt connection 0x1 nil :string "" :varint (length SERVER_PUBLIC_KEY) :byte-array SERVER_PUBLIC_KEY :varint (length verify_token) :byte-array verify_token)
   (def encryption_response (read-pkt connection :shared_secret_len :varint :shared_secret [:byte-array 128] :verify_token_len :varint :verify_token [:byte-array 128]))
   (def decrypted_verify_token (ssl/decrypt SERVER_INFO (get encryption_response :verify_token)))
   (if (deep= decrypted_verify_token verify_token)
@@ -226,15 +239,14 @@
       (def resp (send-auth-req name client_hash))
       (def resp_data (json/decode resp))
       (printf "%j" resp_data)
-      (def aes_info (ssl/setup-aes decrypted_shared_secret))
-      (def mybuf @"")
-      (buffer/push (ssl/encrypt-aes aes_info mybuf @"This is a test"))
-      (buffer/push (ssl/encrypt-aes aes_info mybuf @"\nThis is also a test"))
-      (pp (ssl/decrypt-aes aes_info mybuf 10000))
-      # (write-pkt connection 0x2 :uuid uuid :string name :varint num_props
-                   # :string resp_data_name :string resp_data_value :boolean
-                   # false)
-      )))
+      (def aes-info (ssl/setup-aes decrypted_shared_secret))
+      (def properties (0 (resp_data "properties")))
+      (def num-properties (length properties))
+      (def player-id (base16/decode (resp_data "id")))
+      (if (= num-properties 2)
+          (write-pkt connection 0x2 aes-info :uuid player-id :string name :varint 3 :string (properties "name") :string (properties "value") :boolean false)
+          (write-pkt connection 0x2 aes-info :uuid player-id :string name :varint 4 :string (properties "name") :string (properties "value") :boolean true :string (properties "signature")))
+    )))
 # TODO
 (defn handle-status
   "Handle status=1 in handshake"

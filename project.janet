@@ -6,7 +6,8 @@
      :tag "v2.7.0"}
     {:url "https://github.com/janet-lang/jhydro.git"}
     {:url "https://github.com/andrewchambers/janet-sh"}
-    {:url "https://github.com/janet-lang/spork"} 
+    {:url "https://github.com/janet-lang/spork"}
+    {:url "https://github.com/andrewchambers/janet-base16"} 
 ])
 
 (declare-native
