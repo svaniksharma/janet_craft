@@ -245,7 +245,8 @@
       # The other JSON properties lead to a DecoderException on the client end
       # for some reason. However, they don't seem to be necessary.
       (write-pkt connection 0x2 aes-info :uuid player-id :string name :varint 0) # Login success
-      (pp (read-pkt connection aes-info)) # Login acknowledgement
+      (def login-ack (read-pkt connection aes-info)) # Login acknowledgement
+      (if (= (login-ack :packet_id) 0x3) aes-info)
     )))
 # TODO
 (defn handle-status
@@ -258,13 +259,23 @@
   (def login-start-result (read-pkt connection nil :username [:string 16] :userid :uuid))
   (handle-encryption connection (login-start-result :username) (login-start-result :userid)))
 
+(defn handle-play
+  "Handles the play state"
+  [connection aes-info]
+)
+
 (defn main-server-handler
   "Handle connection in a separate fiber"
   [connection]
   (defer (:close connection)
     (def handshake_result (read-pkt connection nil :protocol_num :varint :server_address [:string 255] :server_port :unsigned-short :state :varint))
     (if (= 2 (get handshake_result :state))
-      (handle-login-start connection) (handle-status connection))))
+      (do
+        (def aes-info (handle-login-start connection))
+        (if (nil? aes-info) nil)
+        (handle-play connection aes-info)
+      )
+      (handle-status connection))))
 
 # Uncomment below when running `judge`
 # (quit)
